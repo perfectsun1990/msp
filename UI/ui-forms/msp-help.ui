@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>HelpWindow</class>
+ <widget class="QMainWindow" name="HelpWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>321</width>
+    <height>412</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Help</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="labelAuthor">
+    <property name="geometry">
+     <rect>
+      <x>24</x>
+      <y>20</y>
+      <width>291</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 75 italic 9pt &quot;微软雅黑&quot;;color:rgb(0, 0, 127)</string>
+    </property>
+    <property name="text">
+     <string>Author  :  Sunpengfei&lt;perfectsun1990@163.com&gt;</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="linkButton">
+    <property name="geometry">
+     <rect>
+      <x>220</x>
+      <y>360</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Connect Us</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="labelVersion">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>23</x>
+      <y>40</y>
+      <width>291</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 75 italic 9pt &quot;微软雅黑&quot;;color:rgb(0, 0, 127)</string>
+    </property>
+    <property name="text">
+     <string>Version :  Beta_V1.0.0</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="labelDate">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>65</y>
+      <width>211</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">font: 75 italic 9pt &quot;微软雅黑&quot;;color:rgb(0, 0, 127)</string>
+    </property>
+    <property name="text">
+     <string>Dateline :  Christmas&lt;2017-12-25&gt;.</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="updateButton">
+    <property name="geometry">
+     <rect>
+      <x>30</x>
+      <y>360</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Update Now</string>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

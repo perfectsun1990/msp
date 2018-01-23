@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>msp.qss</file>
+        <file>msp_ch.ts</file>
+        <file>msp_en.ts</file>
+    </qresource>
+</RCC>
