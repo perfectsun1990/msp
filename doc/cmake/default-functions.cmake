@@ -52,7 +52,6 @@ get_archBits(_bin_suffix)
 
 IF(MSVC)	
 FILE(GLOB FFmpeg_BIN_FILES	
-	MESSAGE("---${FFmpeg_avcodec_INCLUDE_DIR}")
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/avcodec-*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_bin_suffix}/avcodec-*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/avcodec-*.dll"
@@ -249,7 +248,11 @@ MESSAGE(STATUS "QT Release Platform FILEs: ${QT_PLAT_BIN_FILES}")
 MESSAGE(STATUS "QT ICU FILEs: ${QT_ICU_BIN_FILES}")
 
 # dependencies destination dirs.
-SET(DEST_COPY_PATH ${CMAKE_BINARY_DIR}/app_dependencies)
+SET(DEST_COPY_PATH ${CMAKE_SOURCE_DIR}/rundir/deps)
+
+IF( NOT IS_DIRECTORY ${CMAKE_SOURCE_DIR}/rundir/deps)
+file(MAKE_DIRECTORY  ${CMAKE_SOURCE_DIR}/rundir/deps)
+ENDIF()
 
 FOREACH(BinFile ${ALL_BASE_BIN_FILES})
 	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_bin_suffix}")

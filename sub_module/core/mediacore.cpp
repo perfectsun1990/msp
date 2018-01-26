@@ -233,10 +233,6 @@ MediaCore::play()
 		if ( 0 == libvlc_media_player_play(m_media_player))
 		{
 			int32_t retry_count = 0;
-// 			do {
-// 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
-// 				retry_count++;
-// 			} while (duration() <= 0 || retry_count <100 );
 			OnPlay();
 			m_is_playing = true;
 		}		
@@ -251,11 +247,6 @@ MediaCore::stop()
 	if (m_is_playing
 		&& m_media_player)
 	{
-// 		m_is_exit = true;
-// 		if (m_timer.joinable())
-// 		{
-// 			m_timer.join();
-// 		}
 		libvlc_media_player_stop(m_media_player);
 		OnStop();
 		m_is_playing = false;

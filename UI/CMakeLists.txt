@@ -36,8 +36,8 @@ SET(CMAKE_INCLUDE_CURRENT_DIR 	ON)
 SET(CMAKE_AUTOMOC 				ON)
 # Find the packages(libraries/headers dirs) of Qt5.
 FIND_PACKAGE(Qt5 ${FIND_MODE}
-	COMPONENTS Widgets Core Gui Network Xml OpenGL LinguistTools
-	WebChannel WebEngineWidgets )
+	COMPONENTS Widgets Core Gui Network Xml OpenGL 
+	LinguistTools WebChannel WebEngineWidgets )
 #FIND_PACKAGE(Qt5Widgets 			${FIND_MODE})
 IF(WIN32)
 FIND_PACKAGE(Qt5AxContainer 		${FIND_MODE})
@@ -85,7 +85,7 @@ IF( 	CMAKE_COMPILER_IS_GNUCXX
 	IF(USE_LIBC++)
 		SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 	ENDIF()
-elseif( MSVC )
+ELSEIF( MSVC )
 	IF(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
 		STRING(REGEX REPLACE   "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 	ELSE()
@@ -95,10 +95,15 @@ elseif( MSVC )
 	SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4127 /wd4201")
 ENDIF()
 IF(WIN32)
-	SET(CMAKE_WIN32_EXECUTABLE ON)
-	SET(CMAKE_EXE_LINKER_FLAGS "/SAFESEH:NO")
-	add_definitions(-DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS)
+	SET(CMAKE_EXE_LINKER_FLAGS    "/SAFESEH:NO")
+	SET(CMAKE_SHARED_LINKER_FLAGS "/SAFESEH:NO")
+	SET(CMAKE_STATIC_LINKER_FLAGS "/SAFESEH:NO")
+	SET(CMAKE_MODULE_LINKER_FLAGS "/SAFESEH:NO")
+	ADD_DEFINITIONS(-DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS)
 ENDIF()
+
+SET(CMAKE_CXX_FLAGS_DEBUG 	"$ENV{CXXFLAGS} -O0 -Wall -g -ggdb ")
+SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 
 #----------------------------------------------------------------------------------
 #
@@ -179,6 +184,6 @@ TARGET_LINK_LIBRARIES(${PROJECT_NAME}
 
 #----------------------------------------------------------------------------------
 # 链接外部脚本或执行子目录下的CMakelist.txt
-#include(copy_deps_bins)
-#add_subdirectory(sub_module)
+#INCLUDE(copy_deps_bins)
+#ADD_SUBDIRECTORY(sub_module)
 display_enviroments(${DISPLAY_ENVIROMENT})
