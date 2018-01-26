@@ -72,9 +72,7 @@ IMediaCore::create(IMediaCoreObserver *observer)
 }
 
 MediaCore::MediaCore(IMediaCoreObserver* observer):
-	m_observer(observer),
-	m_app_tmp_dir(""),
-	m_cur_play_file("")
+	m_observer(observer)
 {
 	const char * const vlc_args[] = {
 		"--verbose=0", //be much more verbose then normal for debugging purpose

@@ -51,23 +51,23 @@ public:
 	void OnMediaCrop(STATUS err_code) override;
 	void OnMediaMerg(STATUS err_code) override;
 private:
-	IMediaCoreObserver					    *m_observer;
-	int64_t m_duration=0;
+	IMediaCoreObserver		 *m_observer	 = nullptr;
+	/* libvlc module hdws    */
+	libvlc_instance_t		 *m_vlc_instance = nullptr;
+	libvlc_media_player_t	 *m_media_player = nullptr;
+	libvlc_media_t			 *m_media		 = nullptr;
+	/* mediacore play status */
+	int64_t m_duration = 0;
 	int64_t m_cur_time = 0;
 	int64_t m_pre_time = 0;
 	bool	m_is_pause			= false;
 	bool    m_is_playing		= false;
 	bool    m_is_exit			= false;
 	bool    m_enable_transcode	= false;
-	std::string	 m_app_tmp_dir;
+	std::string	 m_app_tmp_dir  = "";
+	std::string	 m_cur_play_file= "";
 	std::thread  m_timer;
+	/* advanced operations   */
 	std::shared_ptr<int32_t> m_pmerg_status;
 	std::shared_ptr<int32_t> m_pcrop_status;
-	/* libvlc hdws */
-	libvlc_instance_t		 *m_vlc_instance = nullptr;
-	libvlc_media_player_t	 *m_media_player = nullptr;
-	libvlc_media_t			 *m_media		 = nullptr;
-	std::string				 m_cur_play_file;
-
-	std::mutex m_get_time_mutx;
 };
