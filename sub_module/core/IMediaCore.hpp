@@ -61,7 +61,7 @@ public:
 	virtual void stop() = 0;
 	virtual bool seek(int64_t seek_ms) = 0;
 	virtual void pause(bool do_pause)  = 0;
-	virtual int64_t duration()		   = 0;//ms
+	virtual int64_t duration(const std::string &file="") = 0;//ms
 
 	/* 3.Advanced media operations.  */
 	virtual void setMediaOutputDir(std::string &output_path) = 0;

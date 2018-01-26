@@ -38,7 +38,7 @@ public:
 	void stop() override;
 	bool seek(int64_t seek_ms) override;
 	void pause(bool do_pause) override;
-	int64_t duration() override;//ms
+	int64_t duration(const std::string &file="") override;//ms
 	/* 3.Advanced media operations.  */
 	void setMediaOutputDir(std::string &output_path) override;
 	void startMediaCrop(std::string crop_input_file, std::vector<media_t> crop_output, std::string crop_output_name) override;
@@ -53,7 +53,8 @@ public:
 private:
 	IMediaCoreObserver					    *m_observer;
 	int64_t m_duration=0;
-	int64_t m_cur_time=0;
+	int64_t m_cur_time = 0;
+	int64_t m_pre_time = 0;
 	bool	m_is_pause			= false;
 	bool    m_is_playing		= false;
 	bool    m_is_exit			= false;
@@ -67,4 +68,6 @@ private:
 	libvlc_media_player_t	 *m_media_player = nullptr;
 	libvlc_media_t			 *m_media		 = nullptr;
 	std::string				 m_cur_play_file;
+
+	std::mutex m_get_time_mutx;
 };

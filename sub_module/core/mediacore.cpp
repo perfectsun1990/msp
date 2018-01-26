@@ -65,19 +65,23 @@ getTimeStamp()
 	return tp.time_since_epoch().count();
 }
 
-std::shared_ptr<IMediaCore>
+std::shared_ptr<IMediaCore> 
 IMediaCore::create(IMediaCoreObserver *observer)
 {
 	return std::make_shared<MediaCore>(observer);
 }
 
-MediaCore::MediaCore(IMediaCoreObserver* observer) :
+MediaCore::MediaCore(IMediaCoreObserver* observer):
 	m_observer(observer),
 	m_app_tmp_dir(""),
 	m_cur_play_file("")
 {
 	const char * const vlc_args[] = {
 		"--verbose=0", //be much more verbose then normal for debugging purpose
+		"-I",
+		"dummy",
+		"--ignore-config",
+		/*  "--extraintf=logger",*/
 	};
 
 	/* create a new LibVLC instance. */
@@ -86,13 +90,13 @@ MediaCore::MediaCore(IMediaCoreObserver* observer) :
 	m_pcrop_status = std::make_shared<int32_t>(ENO_NOTSTART);
 
 	/* start timer */
-	m_timer = std::thread([&, this](void)
+	m_timer	= std::thread([&,this](void) 
 	{
 		while (!m_is_exit)
 		{
 			// update media current play params.
-			if (m_media_player)
-			{
+			if ( m_media_player )
+			{				
 				libvlc_media_t *curMedia = libvlc_media_player_get_media(m_media_player);
 				if (curMedia == NULL)
 				{
@@ -114,13 +118,13 @@ MediaCore::MediaCore(IMediaCoreObserver* observer) :
 		}
 	});
 
-	msg("meidacore is success created!");
+	msg("<%p>meidacore is success created!\n", this);
 }
 
 MediaCore::~MediaCore()
 {
 	destroy();
-	msg("meidacore is success destroyed!");
+	msg("<%p>meidacore is success destroyed!\n",this);
 }
 
 bool
@@ -135,18 +139,16 @@ MediaCore::init(const std::string &media_name, void *win_hdle)
 }
 
 void
-MediaCore::destroy()
+MediaCore::destroy() 
 {
-	if (!m_is_exit)
+	if ( !m_is_exit )
 	{
 		m_is_exit = true;
-		m_timer.join();
-
-		if (nullptr != m_media)
+		if (m_timer.joinable())
 		{
-			libvlc_media_release(m_media);
-			m_media = nullptr;
+			m_timer.join();
 		}
+
 		if (nullptr != m_media_player)
 		{
 			libvlc_media_player_stop(m_media_player);
@@ -154,6 +156,13 @@ MediaCore::destroy()
 			libvlc_media_player_release(m_media_player);
 			m_media_player = nullptr;
 		}
+		
+		if (nullptr != m_media)
+		{
+			libvlc_media_release(m_media);
+			m_media = nullptr;
+		}
+
 		if (nullptr != m_vlc_instance)
 		{
 			libvlc_release(m_vlc_instance);
@@ -180,7 +189,7 @@ MediaCore::setCurMediaFile(const std::string &media_name)
 	if (m_vlc_instance != nullptr)
 	{
 		m_cur_play_file = media_name;
-		m_media = libvlc_media_new_path(m_vlc_instance, m_cur_play_file.c_str());
+		m_media = libvlc_media_new_path(m_vlc_instance, m_cur_play_file.c_str());		
 		if (m_media != nullptr)
 		{
 			m_media_player = libvlc_media_player_new(m_vlc_instance);
@@ -189,7 +198,7 @@ MediaCore::setCurMediaFile(const std::string &media_name)
 				libvlc_media_player_set_media(m_media_player, m_media);
 				return true;
 			}
-		}
+		}			
 	}
 	err("[m_cur_play_file=%s,m_vlc_instance=%p,m_media=%p, m_media_player=%p] error!",
 		m_cur_play_file.c_str(), (void*)m_vlc_instance, (void*)m_media, (void*)m_media_player);
@@ -199,7 +208,9 @@ MediaCore::setCurMediaFile(const std::string &media_name)
 bool
 MediaCore::setRenderWindow(void *win_hdle)
 {
-	if (m_vlc_instance != nullptr && nullptr != win_hdle)
+	if ( m_vlc_instance != nullptr 
+		&& nullptr!= m_media_player 
+		&& nullptr != win_hdle )
 	{
 #if		defined(WIN32)
 		libvlc_media_player_set_hwnd(m_media_player, win_hdle);
@@ -208,7 +219,7 @@ MediaCore::setRenderWindow(void *win_hdle)
 #endif
 		return true;
 	}
-	err("[m_cur_play_file=%s,m_vlc_instance=%p,m_media=%p, m_media_player=%p] error!",
+	err("[m_cur_play_file=%s,m_vlc_instance=%p,m_media=%p, m_media_player=%p] error!", 
 		m_cur_play_file.c_str(), (void*)m_vlc_instance, (void*)m_media, (void*)m_media_player);
 	return false;
 }
@@ -217,18 +228,18 @@ bool
 MediaCore::play()
 {
 	if (!m_is_playing
-		&& m_media_player)
+		&& m_media_player )
 	{
-		if (0 == libvlc_media_player_play(m_media_player))
+		if ( 0 == libvlc_media_player_play(m_media_player))
 		{
 			int32_t retry_count = 0;
-			do {
-				std::this_thread::sleep_for(std::chrono::milliseconds(10));
-				retry_count++;
-			} while (duration() <= 0 || retry_count > 100);
+// 			do {
+// 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+// 				retry_count++;
+// 			} while (duration() <= 0 || retry_count <100 );
 			OnPlay();
 			m_is_playing = true;
-		}
+		}		
 	}
 	pause(false);
 	return false;
@@ -240,6 +251,11 @@ MediaCore::stop()
 	if (m_is_playing
 		&& m_media_player)
 	{
+// 		m_is_exit = true;
+// 		if (m_timer.joinable())
+// 		{
+// 			m_timer.join();
+// 		}
 		libvlc_media_player_stop(m_media_player);
 		OnStop();
 		m_is_playing = false;
@@ -273,27 +289,40 @@ MediaCore::pause(bool do_pause)
 }
 
 int64_t
-MediaCore::duration()
+MediaCore::duration(const std::string &file)
 {
+	int64_t duration = -1;
 	AVFormatContext *ifmt_ctx = NULL;
-	//AVPacket pkt;
-	const char *in_filename = m_cur_play_file.data();
+	std::string filename;
+
+	if (file.empty()){
+		filename=m_cur_play_file.data();
+	}else{
+		filename = file.data();
+	}
+	
+	const char* in_filename = filename.c_str();
+
 	int32_t stream_index = 0, ret = 0, i = 0;
 
 	av_register_all();
 
 	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
-		fprintf(stderr, "Could not open input file '%s'", in_filename);
+		err("Could not open input file '%s'", in_filename);
 		return false;
 	}
 
 	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
-		fprintf(stderr, "Failed to retrieve input stream information");
+		err("Failed to retrieve input stream information");
 		return false;
 	}
+	
 	//av_dump_format(ifmt_ctx, 0, in_filename, 0);
+	duration = ifmt_ctx->duration/1000;
 
-	return (ifmt_ctx->duration / 1000);
+	avformat_close_input(&ifmt_ctx);
+
+	return duration;
 }
 
 void
@@ -397,11 +426,12 @@ MediaCore::startMediaCrop(std::string crop_input_file, std::vector<media_t> crop
 				return;
 			}
 		}
+		*pcrop_status = ENO_FINISHED;
+
 		auto end = std::chrono::system_clock::now();
 		std::chrono::duration<double> elaps_time = end - bgn;
 		msg("cropMedia elaps_time= %llf s\n", elaps_time.count());
 #endif
-		*pcrop_status = ENO_FINISHED;
 	}).detach();
 	return;
 }
@@ -442,10 +472,14 @@ MediaCore::startMediaMerg(std::vector<std::string> merg_input_list, std::string 
 void
 MediaCore::OnCurrentTimePoint(int64_t now_ms)
 {
-	if (m_observer)
-	{
-		if (now_ms > 0)
-			m_observer->OnCurrentTimePoint(now_ms);
+	if ( now_ms != m_pre_time )
+	{		
+		if (m_observer)
+		{
+			if (now_ms > 0)
+				m_observer->OnCurrentTimePoint(now_ms);
+		}
+		m_pre_time = now_ms;
 	}
 	return;
 }
@@ -649,7 +683,6 @@ shellExecuteCommand(std::string cmd, std::string arg, bool is_show)
 static inline bool
 cropMedia(std::string input_name, int32_t start_s, int32_t time_s, std::string output_dir, std::string output_name)
 {
-#if 1
 	std::string tmp = output_dir + std::to_string(start_s) + "_" + std::to_string(start_s + time_s) + "_" + std::to_string(getTimeStamp()) + "_tmp.mp4";
 	std::string tmp_1 = output_dir + std::to_string(start_s) + "_" + std::to_string(start_s + time_s) + "_" + std::to_string(getTimeStamp()) + "repair_tmp.mp4";
 	// crop media file in second.
@@ -662,6 +695,7 @@ cropMedia(std::string input_name, int32_t start_s, int32_t time_s, std::string o
 	arg = " -i " + tmp + " -c copy " + "  -y " + tmp_1;
 	if (!shellExecuteCommand(cmd, arg, false))
 		return false;
+
 	// repair output pkt duration.
 	if (!remuxing(tmp_1, output_dir+output_name))
 		return false;
@@ -670,193 +704,8 @@ cropMedia(std::string input_name, int32_t start_s, int32_t time_s, std::string o
 		remove(tmp.c_str());
 	if (!access(tmp_1.c_str(), 0))
 		remove(tmp_1.c_str());
+
 	return true;
-
-#else// 精确裁剪+后续使用api实现。
-	AVFormatContext *ifmt_ctx = NULL;
-	AVPacket pkt;
-	const char *in_filename = input_name.data();
-	int32_t stream_index = 0, ret = 0, i = 0;
-
-	av_register_all();
-
-	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
-		fprintf(stderr, "Could not open input file '%s'", in_filename);
-		return false;
-	}
-
-	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
-		fprintf(stderr, "Failed to retrieve input stream information");
-		return false;
-	}
-	av_dump_format(ifmt_ctx, 0, in_filename, 0);
-	std::vector<double> IntraTimeStampMap;
-	while (1)
-	{
-		ret = av_read_frame(ifmt_ctx, &pkt);
-		if (ret < 0) break;
-
-		AVStream *in_stream = ifmt_ctx->streams[pkt.stream_index];
-		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-		{
-			if (1 == pkt.flags)
-			{
-				AVRational *time_base = &ifmt_ctx->streams[pkt.stream_index]->time_base;
-				IntraTimeStampMap.push_back(av_q2d(*time_base) * pkt.pts);
-			}
-		}
-		else if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
-		{
-			//log_packet(ifmt_ctx, &pkt, "audio:");
-		}
-		av_packet_unref(&pkt);
-	}
-
-	start_s = 15, time_s = 10;
-
-	//获取start_s最近的前一个I帧的时间戳。
-	double duration = (double)ifmt_ctx->duration / 1000000;
-	double t0 = 0xFFFFFFFF, t1 = 0xFFFFFFFF, start = (double)start_s, last_time = (double)time_s;
-
-	// 	if ( start + last_time > duration )
-	// 	{
-	// 		printf("Error: start + last_time=%llf is out of range,duration=%llf!\n", start + last_time, duration);
-	// 		return false;
-	// 	}
-
-	for (int32_t i = 0; i < IntraTimeStampMap.size(); ++i)
-	{
-		printf("----%0.6g %0.6g\n", IntraTimeStampMap[i], IntraTimeStampMap[IntraTimeStampMap.size() - 1]);
-
-		// I很少，后面全是BP帧.
-		if (start >= IntraTimeStampMap[IntraTimeStampMap.size() - 1])
-		{
-			t0 = IntraTimeStampMap[IntraTimeStampMap.size() - 1];
-			t1 = duration;
-
-			printf("1find: start=%0.6g,Itra=(%0.6g, %0.6g)\n", start, t0, t1);
-			// 直接拷贝裁剪最后一个Gop组，然后转码裁剪 Gop中的start-end的部分。
-
-			//  1.获取 start-t1 部分。
-			//  拷贝裁剪t0-t1
-			//  ffmpeg -i ./src.mp4 -ss 00:00:t0 -t t1-t0 -c copy t0_t1.mp4
-			std::string tmp = std::to_string((int32_t)t0) + "_" + std::to_string((int32_t)(t1 - t0)) + ".mp4";
-			std::string cmd = "ffmpeg.exe";
-			std::string arg = " -i " + input_name + " -ss " + std::to_string((int32_t)t0) + " -t " + std::to_string((int32_t)(t1 - t0))
-				+ "" + "  -y " + tmp;
-			if (!shellExecuteCommand(cmd, arg, false))
-				return false;
-
-			//  在t0-t1基础上，转码裁剪start-end<start_s+time_s>
-			//  ffmpeg -i t0_t1.mp4 -ss 00:00:[start-t0] -t [last_time] start_end.mp4
-			arg = " -i " + tmp + " -ss " + std::to_string((int32_t)(start - t0)) + " -t " + std::to_string((int32_t)(last_time))
-				+ "" + "  -y " + output_name;
-			if (!shellExecuteCommand(cmd, arg, false))
-				return false;
-
-			if (!access(tmp.c_str(), 0))
-				remove(tmp.c_str());
-
-			break;
-		}
-
-		// 针对从头开始的截取动作，直接从头截取就好了，不必细化，开头肯定有I帧数据。
-		if (start < IntraTimeStampMap[0])
-		{
-			printf("2find: start=%0.6g,Itra=(%0.6g, %0.6g)\n", start, t0, t1);
-			// 直接拷贝裁剪start-end部分媒体。
-			//  1.获取 start-end 部分。
-			//  拷贝裁剪start-end<start_s+time_s>
-			//  ffmpeg -i ./src.mp4 -ss 00:00:start_s -t time_s -c copy start_end.mp4
-			std::string cmd = "ffmpeg.exe";
-			std::string arg = " -i " + input_name + " -ss " + std::to_string((int32_t)start) + " -t " + std::to_string((int32_t)last_time)
-				+ " -c copy " + "  -y " + output_name;
-			return shellExecuteCommand(cmd, arg, false);
-			break;
-		}
-
-		// 普通的情况，start 位于两个I帧之间。
-		if (start > IntraTimeStampMap[i]
-			&& start <= IntraTimeStampMap[i + 1])
-		{
-			t0 = IntraTimeStampMap[i];
-			t1 = IntraTimeStampMap[i + 1];
-			printf("3find: start=%0.6g,Itra=(%0.6g, %0.6g)\n", start, t0, t1);
-			if (start + last_time <= t1)
-			{
-				//  1.获取 start-t1 部分。
-				//  拷贝裁剪t0-t1
-				//  ffmpeg -i ./src.mp4 -ss 00:00:t0 -t t1-t0 -c copy t0_t1.mp4
-				//  在t0-t1基础上，转码裁剪start-end<start_s+time_s>
-				//  ffmpeg -i t0_t1.mp4 -ss 00:00:[start-t0] -t [end-start] start_end.mp4
-
-				//  1.获取 start-t1 部分。
-				//  拷贝裁剪t0-t1
-				//  ffmpeg -i ./src.mp4 -ss 00:00:t0 -t t1-t0 -c copy t0_t1.mp4
-				std::string tmp = std::to_string((int32_t)t0) + "_" + std::to_string((int32_t)(t1 - t0)) + ".mp4";
-				std::string cmd = "ffmpeg.exe";
-				std::string arg = " -i " + input_name + " -ss " + std::to_string((int32_t)t0) + " -t " + std::to_string((int32_t)(t1 - t0))
-					+ " -c copy " + "  -y " + tmp;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-
-				//  在t0-t1基础上，转码裁剪start-end<start_s+time_s>
-				//  ffmpeg -i t0_t1.mp4 -ss 00:00:[start-t0] -t [last_time] start_end.mp4
-				arg = " -i " + tmp + " -ss " + std::to_string((int32_t)(start - t0)) + " -t " + std::to_string((int32_t)(last_time))
-					+ "" + "  -y " + output_name;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-
-				if (!access(tmp.c_str(), 0))
-					remove(tmp.c_str());
-			}
-			else {
-				//  1.获取 start-t1 部分。
-				//  拷贝裁剪t0-t1
-				//  ffmpeg -i ./src.mp4 -ss 00:00:t0 -t t1-t0 -c copy t0_t1.mp4			
-				std::string tmp_1 = std::to_string((int32_t)t0) + "_" + std::to_string((int32_t)(t1 - t0)) + "_1.mp4";
-				std::string tmp_1_1 = std::to_string((int32_t)start) + "_" + std::to_string((int32_t)(t1 - start)) + "_1.mp4";
-				std::string tmp_2 = std::to_string((int32_t)t1) + "_" + std::to_string((int32_t)(start + last_time - t1)) + "_2.mp4";
-
-				std::string cmd = "ffmpeg.exe";
-				std::string arg = " -i " + input_name + " -ss " + std::to_string((int32_t)(t0)) + " -t " + std::to_string((int32_t)(t1 - t0))
-					+ " -c copy " + "  -y " + tmp_1;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-				//  在t0-t1基础上，转码裁剪start-t1
-				//  ffmpeg -i t0_t1.mp4 -ss 00:00:[start-t0] -t [t1-start] start_t1.mp4
-				arg = " -i " + tmp_1 + " -ss " + std::to_string((int32_t)(start - t0 + 1)) + " -t " + std::to_string((int32_t)(t1 - start))
-					+ "" + "  -y " + tmp_1_1;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-
-				//  2.获取t1-end<start_s+time_s>部分。
-				//  拷贝裁剪end(start_s+time_s )-t1
-				//  ffmpeg -i ./src.mp4 -ss 00:00:t1 -t [(start_s+time_s )-t1] -c copy t1_end.mp4
-				arg = " -i " + input_name + " -ss " + std::to_string((int32_t)(t1)) + " -t " + std::to_string((int32_t)(start + last_time - t1 + 5))
-					+ " -c copy " + "  -y " + tmp_2;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-
-				// 3.合并-未做完。
-				// ffmpeg -f concat -safe 0 -i merge.list -c copy start_end.mp4
-				arg = " -i " + tmp_1_1 + " -i " + tmp_2 + "  -f mp4  " + " -c copy " + "  -y " + output_name;
-				if (!shellExecuteCommand(cmd, arg, false))
-					return false;
-
-				if (!access(tmp_1.c_str(), 0))
-					remove(tmp_1.c_str());
-				if (!access(tmp_2.c_str(), 0))
-					remove(tmp_2.c_str());
-				if (!access(tmp_1_1.c_str(), 0))
-					remove(tmp_1_1.c_str());
-
-			}
-			break;
-		}
-	}
-	avformat_close_input(&ifmt_ctx);
-#endif
 }
 
 static inline bool
@@ -900,6 +749,7 @@ mergMedia(std::vector<std::string> merg_list, std::string output_dir, std::strin
 				fps = ifmt_ctx->streams[i]->avg_frame_rate.num / ifmt_ctx->streams[i]->avg_frame_rate.den;
 			}
 		}
+		avformat_close_input(&ifmt_ctx);
 	}
 
 	// general output media's merge list.
@@ -983,12 +833,12 @@ remuxing(std::string &src, std::string &dst)
 	av_register_all();
 
 	if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
-		fprintf(stderr, "Could not open input file '%s'", in_filename);
+		err("Could not open input file '%s'", in_filename);
 		goto end;
 	}
 
 	if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
-		fprintf(stderr, "Failed to retrieve input stream information");
+		err("Failed to retrieve input stream information");
 		goto end;
 	}
 
@@ -996,7 +846,7 @@ remuxing(std::string &src, std::string &dst)
 
 	avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename);
 	if (!ofmt_ctx) {
-		fprintf(stderr, "Could not create output context\n");
+		err("Could not create output context\n");
 		ret = AVERROR_UNKNOWN;
 		goto end;
 	}
@@ -1028,31 +878,34 @@ remuxing(std::string &src, std::string &dst)
 
 		out_stream = avformat_new_stream(ofmt_ctx, NULL);
 		if (!out_stream) {
-			fprintf(stderr, "Failed allocating output stream\n");
+			err("Failed allocating output stream\n");
 			ret = AVERROR_UNKNOWN;
 			goto end;
 		}
 
 		ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
 		if (ret < 0) {
-			fprintf(stderr, "Failed to copy codec parameters\n");
+			err("Failed to copy codec parameters\n");
 			goto end;
 		}
 		out_stream->codecpar->codec_tag = 0;
 	}
 	av_dump_format(ofmt_ctx, 0, out_filename, 1);
 
-	if (!(ofmt->flags & AVFMT_NOFILE)) {
-		ret = avio_open(&ofmt_ctx->pb, out_filename, AVIO_FLAG_WRITE);
+	if (!(ofmt->flags & AVFMT_NOFILE)) 
+	{
+		char out_filename_cvt[512] = { 0 };
+		MultiByte2Utf8(out_filename, out_filename_cvt, sizeof(out_filename_cvt));
+		ret = avio_open(&ofmt_ctx->pb, out_filename_cvt, AVIO_FLAG_WRITE);
 		if (ret < 0) {
-			fprintf(stderr, "Could not open output file '%s'", out_filename);
+			err("Could not open output file '%s'", out_filename_cvt);
 			goto end;
 		}
 	}
 
 	ret = avformat_write_header(ofmt_ctx, NULL);
 	if (ret < 0) {
-		fprintf(stderr, "Error occurred when opening output file\n");
+		err("Error occurred when opening output file\n");
 		goto end;
 	}
 
@@ -1097,7 +950,7 @@ remuxing(std::string &src, std::string &dst)
 		//截取一段时间的视频.
 		ret = av_interleaved_write_frame(ofmt_ctx, &pkt);
 		if (ret < 0) {
-			fprintf(stderr, "Error muxing packet\n");
+			err("Error in av_interleaved_write_frame packet\n");
 			break;
 		}
 
@@ -1135,41 +988,41 @@ int main()
 	std::cout << "high resolution clock : ";
 	std::cout << std::chrono::high_resolution_clock::period::num << "/" << std::chrono::high_resolution_clock::period::den << "s" << std::endl;
 
-	std::cout << "ts=" << getTimeStamp() << "time=" << time(0) << std::endl;
+	std::cout <<"ts="<< getTimeStamp() << "time=" << time(0)<<std::endl;
 
 	auto start = std::chrono::system_clock::now();
 	std::cout << "f(12) = " << fibonacci(42) << '\n';
 	auto end = std::chrono::system_clock::now();
-
+	
 	std::chrono::duration<double> elapsed_seconds = end - start;
 	std::time_t end_time = std::chrono::system_clock::to_time_t(end);
 	std::cout << "finished computation at " << std::ctime(&end_time)
 		<< "elapsed time: " << elapsed_seconds.count() << "s\n";
 	std::string src = "E:\\test\\remuxing.mp4";
 	std::string dst = "E:\\test\\remuxing-out.mp4";
-
+	
 	remuxing(src, dst);
 #else
 	int count = 0;
+
 	while (true)
-	{
+	{	
 		std::shared_ptr<IMediaCore> p = IMediaCore::create(nullptr);
 		std::string test_file;
-		if (count++ % 2) {
-			test_file = "E:\\av-test\\中-crop.mp4";
-		}
-		else {
-			test_file = "E:\\av-test\\中-crop.mp4"; // "E:\\test\\狐狸精MTV-罗志祥.wmv";
+		if (count++ % 2){
+			test_file = "E:\\av-test\\c.mp4";
+		}else{
+			test_file = "E:\\av-test\\c.mp4"; // "E:\\test\\狐狸精MTV-罗志祥.wmv";
 		}
 
 		// 中文转码-针对vlc播放必须的。
-		char media_file[512] = { 0 };
-		MultiByte2Utf8(test_file.data(), media_file, sizeof(media_file));
+		char media_file[512] = {0};
+		MultiByte2Utf8(test_file.data(), media_file,sizeof(media_file));
 
 		p->init(media_file, ::GetDesktopWindow());
-		p->play();
+		p->play();	
 
-#if 1
+#if 0
 		p->setMediaOutputDir(std::string("E:\\剪辑输出"));
 		// media crop test....
 		std::vector<media_t> crop_output_list;
@@ -1182,19 +1035,16 @@ int main()
 		p->startMediaCrop(crop_input_file, crop_output_list, crop_output_name);
 
 		// media merge test....
-		std::string m_f1 = "E:\\av-test\\中-merge-part1.mp4";
-		std::string m_f2 = "E:\\av-test\\中-merge-part2.mp4";
+		std::string m_f1 = "E:\\av-test\\merge-part1.mp4";
+		std::string m_f2 = "E:\\av-test\\merge-part2.mp4";
 		std::vector<std::string> merg_input_list;
 		merg_input_list.push_back(m_f1);
 		merg_input_list.push_back(m_f2);
 		std::string merg_output_name = std::to_string(getTimeStamp()) + "中文_merge.mp4";
 		p->startMediaMerg(merg_input_list, merg_output_name);
 #endif
+		//p.reset();
 		std::this_thread::sleep_for(std::chrono::seconds(5));
-		p->stop();
-		p->destroy();
-		p.reset();
-		std::this_thread::sleep_for(std::chrono::seconds(600));
 	}
 #endif
 	system("pause");
