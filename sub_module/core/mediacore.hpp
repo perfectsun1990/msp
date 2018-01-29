@@ -34,7 +34,7 @@ public:
 	bool setCurMediaFile(const std::string &media_name) override;
 	bool setRenderWindow(void *win_hdle) override;
 	/* 2.Control media play actions.  */
-	bool play() override;
+	bool play(bool loop = false) override;
 	void stop() override;
 	bool seek(int64_t seek_ms) override;
 	void pause(bool do_pause) override;
@@ -47,6 +47,7 @@ public:
 	void OnCurrentTimePoint(int64_t now_ms) override;
 	void OnPlay()  override;
 	void OnStop()  override;
+	void OnReplay()  override;
 	void OnSeek(int64_t seek_ms) override;
 	void OnMediaCrop(STATUS err_code) override;
 	void OnMediaMerg(STATUS err_code) override;
@@ -56,6 +57,7 @@ private:
 	libvlc_instance_t		 *m_vlc_instance = nullptr;
 	libvlc_media_player_t	 *m_media_player = nullptr;
 	libvlc_media_t			 *m_media		 = nullptr;
+	void					 *m_drawable	 = nullptr;
 	/* mediacore play status */
 	int64_t m_duration = 0;
 	int64_t m_cur_time = 0;
@@ -63,6 +65,7 @@ private:
 	bool	m_is_pause			= false;
 	bool    m_is_playing		= false;
 	bool    m_is_exit			= false;
+	bool    m_is_loop			= false;
 	bool    m_enable_transcode	= false;
 	std::string	 m_app_tmp_dir  = "";
 	std::string	 m_cur_play_file= "";

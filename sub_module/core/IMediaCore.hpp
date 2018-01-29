@@ -35,7 +35,8 @@ class MEDIACORE_API IMediaCoreObserver
 public:
 	virtual void OnCurrentTimePoint(int64_t now_ms) = 0;
 	virtual void OnPlay() = 0;
-	virtual void OnStop() = 0;	
+	virtual void OnStop() = 0;
+	virtual void OnReplay() = 0;
 	virtual void OnSeek(int64_t seek_ms) = 0;
 	virtual void OnMediaCrop(STATUS err_code) = 0;
 	virtual void OnMediaMerg(STATUS err_code) = 0;
@@ -57,7 +58,7 @@ public:
 	virtual bool setCurMediaFile(const std::string &media_name) = 0;
 	virtual bool setRenderWindow(void *win_hdle) = 0;
 	/* 2.Control media play actions.  */
-	virtual bool play() = 0;
+	virtual bool play(bool loop = false) = 0;
 	virtual void stop() = 0;
 	virtual bool seek(int64_t seek_ms) = 0;
 	virtual void pause(bool do_pause)  = 0;

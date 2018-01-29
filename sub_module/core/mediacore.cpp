@@ -106,6 +106,13 @@ MediaCore::MediaCore(IMediaCoreObserver* observer):
 				float pos = libvlc_media_player_get_position(m_media_player);
 				int volume = libvlc_audio_get_volume(m_media_player);
 				m_duration = libvlc_media_player_get_length(m_media_player);
+				if (m_is_loop
+					&& abs(m_cur_time - m_duration) < 500 )
+				{
+					libvlc_media_player_stop(m_media_player);
+					libvlc_media_player_play(m_media_player);
+					OnReplay();
+				}
 			}
 
 			// update media corp and merge status.
@@ -203,6 +210,12 @@ MediaCore::setCurMediaFile(const std::string &media_name)
 	return false;
 }
 
+// BOOL CALLBACK EnumerateVLC(HWND hWndvlc, LPARAM lParam)
+// {
+// 	EnableWindow(hWndvlc, FALSE);
+// 	return TRUE;
+// }
+
 bool
 MediaCore::setRenderWindow(void *win_hdle)
 {
@@ -211,7 +224,7 @@ MediaCore::setRenderWindow(void *win_hdle)
 		&& nullptr != win_hdle )
 	{
 #if		defined(WIN32)
-		libvlc_media_player_set_hwnd(m_media_player, win_hdle);
+		libvlc_media_player_set_hwnd(m_media_player, m_drawable=win_hdle);
 #elif	defined(APPLE)
 		libvlc_media_player_set_nsobject(m_media_player, win_hdle);
 #endif
@@ -223,7 +236,7 @@ MediaCore::setRenderWindow(void *win_hdle)
 }
 
 bool
-MediaCore::play()
+MediaCore::play(bool loop)
 {
 	if (!m_is_playing
 		&& m_media_player )
@@ -233,9 +246,26 @@ MediaCore::play()
 			int32_t retry_count = 0;
 			OnPlay();
 			m_is_playing = true;
-		}		
+// 			do {
+// 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+// 			} while (libvlc_media_player_get_length(m_media_player) <= 0 && retry_count<50);
+
+			libvlc_video_set_mouse_input(m_media_player, false);
+			libvlc_video_set_key_input(m_media_player, false);
+// 			std::thread([&]() {
+// 				while (m_is_playing)
+// 				{
+// 					if (nullptr != m_drawable)
+// 					{
+// 						EnumChildWindows((HWND)m_drawable, EnumerateVLC, NULL);
+// 					}
+// 					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+// 				}
+// 			}).detach();	
+		}
 	}
 	pause(false);
+	m_is_loop = loop;
 	return false;
 }
 
@@ -494,6 +524,14 @@ MediaCore::OnSeek(int64_t seek_ms)
 {
 	if (m_observer)
 		m_observer->OnSeek(seek_ms);
+	return;
+}
+
+void
+MediaCore::OnReplay()
+{
+	if (m_observer)
+		m_observer->OnReplay();
 	return;
 }
 
@@ -999,9 +1037,9 @@ int main()
 		std::shared_ptr<IMediaCore> p = IMediaCore::create(nullptr);
 		std::string test_file;
 		if (count++ % 2){
-			test_file = "E:\\av-test\\c.mp4";
+			test_file = "E:\\av-test\\merge-part1.mp4";
 		}else{
-			test_file = "E:\\av-test\\c.mp4"; // "E:\\test\\狐狸精MTV-罗志祥.wmv";
+			test_file = "E:\\av-test\\merge-part1.mp4"; // "E:\\test\\狐狸精MTV-罗志祥.wmv";
 		}
 
 		// 中文转码-针对vlc播放必须的。
@@ -1009,7 +1047,9 @@ int main()
 		MultiByte2Utf8(test_file.data(), media_file,sizeof(media_file));
 
 		p->init(media_file, ::GetDesktopWindow());
-		p->play();	
+		p->play(true);	
+		int64_t duration=p->duration("E:\\av-test\\merge-part1.mp4");
+		msg("duration=%lld\n", duration);
 
 #if 0
 		p->setMediaOutputDir(std::string("E:\\剪辑输出"));
@@ -1033,7 +1073,7 @@ int main()
 		p->startMediaMerg(merg_input_list, merg_output_name);
 #endif
 		//p.reset();
-		std::this_thread::sleep_for(std::chrono::seconds(5));
+		//std::this_thread::sleep_for(std::chrono::seconds(10000));
 	}
 #endif
 	system("pause");
