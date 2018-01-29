@@ -9,21 +9,14 @@
 namespace Ui {class MSPPlayer;}
 class MSP_Help;
 
-#define POSITION_RESOLUTION 10000
-#define MAX_URL_LENGTH 500
-
-typedef enum{
-	LOOPING_NONE=0,
+#define POS_RESOLUTION		10000
+#define MAX_URL_LENGTH		512
+typedef enum {
+	LOOPING_NOLOOP=0,
 	LOOPING_SINGLE,
 	LOOPING_XORDER,
 	LOOPING_RANDOM,
 }PLAY_MODE;
-
-enum PlayerState {
-	STATE_PREPARE,
-	STATE_PLAY,
-	STATE_PAUSE
-};
 
 class MSPPlayer : public QMainWindow
 {
@@ -34,39 +27,37 @@ public:
 
 public slots:
 	/* actions. */
-	void on_actionOpenFile();
-	void on_actionExit();
-	void on_actionHelp();	
-	void on_actionFullScreen(bool flag);
-	void on_actionScale(bool flag);
+	void on_actionOpen_triggered();
+	void on_actionExit_triggered();
+	void on_actionHelp_triggered();
+	void on_actionFullScreen_triggered(bool flag);
+	void on_actionOriginalpp_triggered(bool flag);
 	/* buttons. */
-	void on_playButtonClicked();
-	void on_stopButtonClicked();
-	void on_lastButtonClicked();
-	void on_nextButtonClicked();
+	void on_playButton_clicked();
+	void on_stopButton_clicked();
+	void on_lastButton_clicked();
+	void on_nextButton_clicked();
 	/* sliders. */
-	void on_seekVolume(int vol);
-	void on_seekPosition(int pos);
-	/* timer.   */
-	void updateInterface();
+	void on_volmSlider_sliderMoved(int vol);
+	void on_seekSlider_sliderMoved(int pos);
 
 	void test_demo(char* pszMultiByte);
 private:
-	Ui::MSPPlayer			  *ui;
-	QTimer					  *m_poller;
-
-	/* sub windows */
+	Ui::MSPPlayer			  *ui			 = nullptr;
+	std::shared_ptr<QTimer>	  m_poller;
+	/* vlc handle */
+	libvlc_instance_t		  *m_vInst		 = nullptr;
+	libvlc_media_player_t	  *m_mediaPlayer = nullptr;
+	libvlc_media_t			  *m_media		 = nullptr;
+	/* sub widget */
 	std::shared_ptr<MSP_Help> m_helpWindow;
-	/* play files. */
+	/* play medias. */
 	QString					  m_curPlayingFile;
 	QStringList				  m_curPlayingList;
 	/* play status */		  
-	bool					  m_isPlaying;
-	bool					  m_isPause;
-	/* libvlc hdws */		  
-	libvlc_instance_t		  *m_vlcInst;
-	libvlc_media_player_t	  *m_mediaPlayer;
-	libvlc_media_t			  *m_media;
+	bool					  m_isPlaying	 = false;
+	bool					  m_isPause      = false;
+	int64_t					  m_duration	 = 0;
+	int64_t					  m_cur_time	 = 0;
+	int64_t					  m_pre_time	 = 0;
 };
-
-

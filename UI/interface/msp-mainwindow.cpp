@@ -80,50 +80,56 @@ void MSPPlayer::test_demo(char* name_utf8)
 	libvlc_release(inst);
 }
 
-const char * const vlc_args[] = {
-	"--verbose=0", //be much more verbose then normal for debugging purpose
-	"--plugin-path=./plugins"
-};
+std::shared_ptr<std::string>
+getFmtTime(int64_t sec)
+{
+	char buf[512] = {0};
+	sprintf(buf,"%02lld:%02lld:%02lld", sec / 3600, (sec / 60) % 60, sec % 60);
+	std::shared_ptr<std::string> p = std::make_shared<std::string>(buf);
+	return p;
+}
 
 MSPPlayer::MSPPlayer(QWidget *parent) :
 	QMainWindow(parent),
-    ui(new Ui::MSPPlayer),
-	m_vlcInst(nullptr),
-	m_media(nullptr),
-	m_mediaPlayer(nullptr),
-	m_poller(new QTimer(this)),
-	m_isPlaying(false),
-	m_isPause(false)
+    ui(new Ui::MSPPlayer)
 {
 	FUNC_ENTER
-
 	ui->setupUi(this);
-	ui->seekSlider->setMaximum(POSITION_RESOLUTION);
-	ui->volumeSlider->setMaximum(100);
+	ui->seekSlider->setMaximum(POS_RESOLUTION);
+	ui->volmSlider->setMaximum(100);
 
-	// 1.sub windows  of mainwindow.
+	/* 1.Create mediacore instances .*/
+	const char * const vlc_args[] = {
+		"--verbose=0", //be much more verbose then normal for debugging purpose
+	};
+	m_vInst = libvlc_new(sizeof(vlc_args) / sizeof(vlc_args[0]), vlc_args);
+
+	// 2.Addon sub widgets.
 	m_helpWindow = std::make_shared<MSP_Help>();
 
-	/*Create a new LibVLC instance.*/
-	m_vlcInst = libvlc_new(sizeof(vlc_args)/sizeof(vlc_args[0]),vlc_args);
-
-	// 2.sig and slot of mainwindow.
-	connect(ui->playButton,		SIGNAL(clicked()), this, SLOT(on_playButtonClicked()));
-	connect(ui->stopButton,		SIGNAL(clicked()), this, SLOT(on_stopButtonClicked()));
-	connect(ui->lastButton,		SIGNAL(clicked()), this, SLOT(on_lastButtonClicked()));
-	connect(ui->nextButton,		SIGNAL(clicked()), this, SLOT(on_nextButtonClicked()));
-	connect(ui->actionOpenFile, SIGNAL(triggered(bool)), this, SLOT(on_actionOpenFile()));
-	connect(ui->actionUpdate,	SIGNAL(triggered(bool)), this, SLOT(on_actionHelp()));
-	connect(ui->actionAbout,	SIGNAL(triggered(bool)), this, SLOT(on_actionHelp()));
-	connect(ui->actionExit,		SIGNAL(triggered(bool)), this, SLOT(on_actionExit()));
-	connect(ui->actionFullScreen, SIGNAL(triggered(bool)), this, SLOT(on_actionFullScreen(bool)));	
-	connect(ui->actionOriginal, SIGNAL(triggered(bool)), this, SLOT(on_actionScale(bool)));
-	connect(ui->seekSlider,		SIGNAL(sliderMoved(int)), this, SLOT(on_seekPosition(int)));
-	connect(ui->seekSlider,		SIGNAL(clicked()), this, SLOT(on_seekPosition(int)));
-	connect(ui->volumeSlider,   SIGNAL(sliderMoved(int)), this, SLOT(on_seekVolume(int)));
-	connect(ui->volumeSlider,   SIGNAL(clicked()), this, SLOT(on_seekVolume(int)));	
-	connect(m_poller, SIGNAL(timeout()), this, SLOT(updateInterface()));
-	m_poller->start(100);//start timer to trigger every 100 ms the updateInterface slot 
+	// 3.Qtimer function and connect slots.
+	connect(ui->actionUpdate,	SIGNAL(triggered(bool)), this, SLOT(on_actionHelp_triggered()));
+	m_poller = std::make_shared<QTimer>(this);
+	connect(m_poller.get(), &QTimer::timeout, this, [&]() 
+	{
+		if (!m_isPlaying)
+			return;
+		// It's possible that the vlc doesn't play anything so check before
+		libvlc_media_t *curMedia = libvlc_media_player_get_media(m_mediaPlayer);
+		if (curMedia == NULL)
+			return;
+		ui->seekSlider->setValue((int)(libvlc_media_player_get_position(m_mediaPlayer)*(float)(POS_RESOLUTION)));
+		ui->volmSlider->setValue(libvlc_audio_get_volume(m_mediaPlayer));
+		m_cur_time = libvlc_media_player_get_time(m_mediaPlayer);
+		m_duration = libvlc_media_player_get_length(m_mediaPlayer);
+		if ( abs(m_cur_time - m_duration) <= 200 ){
+			on_stopButton_clicked();
+			ui->timeLable->setText(getFmtTime(0)->c_str());
+		}else {
+			ui->timeLable->setText(getFmtTime(m_cur_time / 1000)->c_str());
+		}
+	});
+	m_poller->start(100);//start timer to trigger every 100 ms.
 }
 
 MSPPlayer::~MSPPlayer()
@@ -142,12 +148,11 @@ MSPPlayer::~MSPPlayer()
 		libvlc_media_release(m_media);
 		m_media = nullptr;
 	}
-	if (nullptr != m_vlcInst)
+	if (nullptr != m_vInst)
 	{
-		libvlc_release(m_vlcInst);
-		m_vlcInst = nullptr;
+		libvlc_release(m_vInst);
+		m_vInst = nullptr;
 	}
-	delete m_poller;
     delete ui;
 }
 
@@ -155,12 +160,12 @@ MSPPlayer::~MSPPlayer()
 /*                  	   	  buttons									*/
 /************************************************************************/
 void
-MSPPlayer::on_playButtonClicked()
+MSPPlayer::on_playButton_clicked()
 {
 	FUNC_ENTER
 
 	if (m_curPlayingFile.isEmpty())
-		on_actionOpenFile();
+		on_actionOpen_triggered();
 
 	if (m_isPlaying)
 	{
@@ -175,8 +180,8 @@ MSPPlayer::on_playButtonClicked()
 	}	
 
 	/* Create a new LibVLC media descriptor */
-	m_media = libvlc_media_new_path(m_vlcInst, m_curPlayingFile.toStdString().data());
-	m_mediaPlayer = libvlc_media_player_new(m_vlcInst);
+	m_media = libvlc_media_new_path(m_vInst, m_curPlayingFile.toUtf8().data());
+	m_mediaPlayer = libvlc_media_player_new(m_vInst);
 	libvlc_media_player_set_media(m_mediaPlayer, m_media);
 	/* Get our media instance to use our window */
 #if		defined(Q_OS_WIN)
@@ -191,7 +196,7 @@ MSPPlayer::on_playButtonClicked()
 }
 
 void
-MSPPlayer::on_stopButtonClicked()
+MSPPlayer::on_stopButton_clicked()
 {
 	FUNC_ENTER
 	/* Stop playing */
@@ -209,7 +214,7 @@ MSPPlayer::on_stopButtonClicked()
 }
 
 void
-MSPPlayer::on_lastButtonClicked()
+MSPPlayer::on_lastButton_clicked()
 {
 	FUNC_ENTER
 
@@ -225,13 +230,13 @@ MSPPlayer::on_lastButtonClicked()
 				break;
 			}
 		}
-		on_stopButtonClicked();
-		on_playButtonClicked();
+		on_stopButton_clicked();
+		on_playButton_clicked();
 	}
 }
 
 void 
-MSPPlayer::on_nextButtonClicked()
+MSPPlayer::on_nextButton_clicked()
 {
 	FUNC_ENTER
 
@@ -246,8 +251,8 @@ MSPPlayer::on_nextButtonClicked()
 				break;
 			}
 		}
-		on_stopButtonClicked();
-		on_playButtonClicked();
+		on_stopButton_clicked();
+		on_playButton_clicked();
 	}
 }
 
@@ -255,7 +260,7 @@ MSPPlayer::on_nextButtonClicked()
 /*                  	   	  actions									*/
 /************************************************************************/
 void
-MSPPlayer::on_actionOpenFile()
+MSPPlayer::on_actionOpen_triggered()
 {
 	QStringList openFileNames = QFileDialog::getOpenFileNames(
 		nullptr, QObject::tr("Open Files"), ".", openFilter, nullptr, 0);
@@ -287,7 +292,7 @@ MSPPlayer::on_actionOpenFile()
 }
 
 void
-MSPPlayer::on_seekVolume(int vol)
+MSPPlayer::on_volmSlider_sliderMoved(int vol)
 {
 	if (nullptr != m_mediaPlayer)
 	{
@@ -296,20 +301,20 @@ MSPPlayer::on_seekVolume(int vol)
 }
 
 void
-MSPPlayer::on_seekPosition(int pos)
+MSPPlayer::on_seekSlider_sliderMoved(int pos)
 {
 	if (nullptr != m_mediaPlayer)
 	{
 		libvlc_media_t *curMedia = libvlc_media_player_get_media(m_mediaPlayer);
 		if (curMedia == NULL)
 			return;
-		float new_pos = (float)(pos) / (float)POSITION_RESOLUTION;
+		float new_pos = (float)(pos) / (float)POS_RESOLUTION;
 		libvlc_media_player_set_position(m_mediaPlayer, new_pos);
 	}
 }
 
 void
-MSPPlayer::on_actionScale(bool flag)
+MSPPlayer::on_actionOriginalpp_triggered(bool flag)
 {
 	if (m_mediaPlayer)
 	{
@@ -318,42 +323,22 @@ MSPPlayer::on_actionScale(bool flag)
 }
 
 void
-MSPPlayer::on_actionFullScreen(bool flag)
+MSPPlayer::on_actionFullScreen_triggered(bool flag)
 {
 	if (m_mediaPlayer)
 	{
-		//libvlc_video_set_scale(m_mediaPlayer, flag);
 		libvlc_set_fullscreen(m_mediaPlayer, flag);
 	}
 }
+
 void
-MSPPlayer::on_actionHelp()
+MSPPlayer::on_actionHelp_triggered()
 {
 	m_helpWindow->show();
 }
 
 void 
-MSPPlayer::on_actionExit()
+MSPPlayer::on_actionExit_triggered()
 {
 	this->close();
 }
-
-
-void MSPPlayer::updateInterface()
-{
-	if (!m_isPlaying)
-		return;
-
-	// It's possible that the vlc doesn't play anything
-	// so check before
-	libvlc_media_t *curMedia = libvlc_media_player_get_media(m_mediaPlayer);
-	if (curMedia == NULL)
-		return;
-	float pos = libvlc_media_player_get_position(m_mediaPlayer);
-	int siderPos = (int)(pos*(float)(POSITION_RESOLUTION));	
-	int volume = libvlc_audio_get_volume(m_mediaPlayer);
-	ui->seekSlider->setValue(siderPos);
-	ui->volumeSlider->setValue(volume);
-	ui->timeLable->setText("");
-}
-

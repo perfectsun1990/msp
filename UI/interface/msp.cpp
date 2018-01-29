@@ -9,7 +9,7 @@
 #include "msp-mainwindow.hpp"
 
 void
-MSPApplication::load_settings(const char* appQss, const char* appQm)
+MSPApp::load_settings(const char* appQss, const char* appQm)
 {
 	// 1.Create %appdata%/msp/ directory.
 	// purpose:store config and log files.
@@ -46,8 +46,8 @@ MSPApplication::load_settings(const char* appQss, const char* appQm)
 int32_t
 main(int32_t argc, char *argv[])
 {
-	MSPApplication msp_app(argc,argv);	
+	MSPApp app(argc,argv);	
 	MSPPlayer p;
 	p.show();
-	return msp_app.exec();
+	return app.exec();
 }

@@ -1,14 +1,25 @@
 
 #pragma once
-
 #include <iostream>
-#include <thread>
+#include <chrono>
+#include <future>
 #include <atomic>
 #include <memory>
-#include <stdint.h>
-#include <stddef.h>
+#include <cstdio>
+#include <thread>
+#include <mutex>
+#include <functional>
+#include <cassert>
+#include <cstdlib>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <ctime>
 #ifdef WIN32
 #include <windows.h>
+#include <direct.h>  
+#include <io.h>
+#include<shellapi.h>
 #else
 #endif
 #include <QApplication>
@@ -37,16 +48,17 @@ extern "C"
 #include <libavformat/avformat.h>
 }
 
-#define  FUNC_ENTER qDebug() << __FUNCTION__ << __LINE__ <<":";
+#define  MSG(fmt, ...)				printf( fmt, ##__VA_ARGS__ )
+#define  FUNC_ENTER MSG("Enter [%s:%d]\n",__FUNCTION__,__LINE__);
 
-class MSPApplication : public QApplication
+class MSPApp : public QApplication
 {
 	Q_OBJECT
 public:
-	explicit MSPApplication(int &argc, char *argv[]) : QApplication(argc, argv) {
+	explicit MSPApp(int &argc, char *argv[]) : QApplication(argc, argv) {
 		load_settings();
 	};
-	~MSPApplication() {};
+	~MSPApp() {};
 private:
 	void load_settings(const char* appQss=":/msp.qss",const char* appQm="/msp_ch.qm");
 private:
