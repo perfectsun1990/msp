@@ -91,7 +91,7 @@ getFmtTime(int64_t sec)
 
 MSPPlayer::MSPPlayer(QWidget *parent) :
 	QMainWindow(parent),
-    ui(new Ui::MSPPlayer)
+    ui(std::make_shared<Ui::MSPPlayer>())
 {
 	FUNC_ENTER
 	ui->setupUi(this);
@@ -153,7 +153,6 @@ MSPPlayer::~MSPPlayer()
 		libvlc_release(m_vInst);
 		m_vInst = nullptr;
 	}
-    delete ui;
 }
 
 /************************************************************************/

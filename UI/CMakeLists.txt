@@ -69,6 +69,13 @@ INCLUDE_DIRECTORIES(${SDL2_INCLUDE_DIR})
 FIND_PACKAGE(LIBVLC  REQUIRED)
 INCLUDE_DIRECTORIES(${LIBVLC_INCLUDE_DIR})
 
+# 外部依赖模块路径<传统模式>
+# gcc -I path -L path.
+INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}/inc")
+LINK_DIRECTORIES(   "${PROJECT_SOURCE_DIR}/lib")
+# 外部依赖模块名称<传统模式>
+# gcc -ldependece.lib.
+SET(EXTERN_LIBRARY dependece.lib)
 
 #----------------------------------------------------------------------------------
 # 针对GCC/G++/CLang/MSVC的配置项.
@@ -177,7 +184,8 @@ TARGET_LINK_LIBRARIES(${PROJECT_NAME}
 TARGET_LINK_LIBRARIES(${PROJECT_NAME}
 	${FFmpeg_LIBRARY}
 	${SDL2_LIBRARY}
-	${LIBVLC_LIBRARY})
+	${LIBVLC_LIBRARY}
+	${EXTERN_LIBRARY})
 
 #----------------------------------------------------------------------------------
 # 链接外部脚本或执行子目录下的CMakelist.txt

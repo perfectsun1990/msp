@@ -43,7 +43,7 @@ public slots:
 
 	void test_demo(char* pszMultiByte);
 private:
-	Ui::MSPPlayer			  *ui			 = nullptr;
+	std::shared_ptr<Ui::MSPPlayer> ui		 = nullptr;
 	std::shared_ptr<QTimer>	  m_poller;
 	/* vlc handle */
 	libvlc_instance_t		  *m_vInst		 = nullptr;
