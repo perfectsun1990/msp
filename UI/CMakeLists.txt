@@ -75,7 +75,7 @@ INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}/inc")
 LINK_DIRECTORIES(   "${PROJECT_SOURCE_DIR}/lib")
 # 外部依赖模块名称<传统模式>
 # gcc -ldependece.lib.
-SET(EXTERN_LIBRARY dependece.lib)
+# SET(EXTERN_LIBRARY dependece.lib)
 
 #----------------------------------------------------------------------------------
 # 针对GCC/G++/CLang/MSVC的配置项.
