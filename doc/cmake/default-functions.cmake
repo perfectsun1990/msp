@@ -1,10 +1,22 @@
 
-# display the cmake enviroments for debug.
+# get current system arch bits.
 FUNCTION(get_archBits arg)
 IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
 	SET(${arg} 64 PARENT_SCOPE)
 ELSE()
 	SET(${arg} 32 PARENT_SCOPE)
+ENDIF()
+ENDFUNCTION()
+
+# Add default cmake search path.
+FUNCTION(append_default_search_paths arg0 arg1)
+get_archBits(_arc_suffix)
+FILE(GLOB   CMAKE_DEFAULT_PATH
+	"C:/Qt/Qt5.*.*/5.*/msvc201*" "D:/Qt/Qt5.*.*/5.*/msvc201*"
+	"${CMAKE_SOURCE_DIR}/dep*/win${_arc_suffix}")
+LIST(APPEND ${arg0} ${CMAKE_DEFAULT_PATH})
+IF(arg1)
+	MESSAGE("[${PROJECT_NAME}] Add default search paths: ${${arg0}}")
 ENDIF()
 ENDFUNCTION()
 
@@ -48,41 +60,41 @@ IF(NOT COPY_DEPENDENCIES OR COPIED_DEPENDENCIES)
 	return()
 ENDIF()
 
-get_archBits(_bin_suffix)
+get_archBits(_arc_suffix)
 
 IF(MSVC)	
 FILE(GLOB FFmpeg_BIN_FILES	
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/avcodec-*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_bin_suffix}/avcodec-*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/avcodec-*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_arc_suffix}/avcodec-*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/avcodec-*.dll"
 
 	"${FFmpeg_avformat_INCLUDE_DIR}/../../bin/avformat-*.dll"
-	"${FFmpeg_avformat_INCLUDE_DIR}/../../bin${_bin_suffix}/avformat-*.dll"
-	"${FFmpeg_avformat_INCLUDE_DIR}/bin${_bin_suffix}/avformat-*.dll"
+	"${FFmpeg_avformat_INCLUDE_DIR}/../../bin${_arc_suffix}/avformat-*.dll"
+	"${FFmpeg_avformat_INCLUDE_DIR}/bin${_arc_suffix}/avformat-*.dll"
 
 	"${FFmpeg_avutil_INCLUDE_DIR}/../../bin/avutil-*.dll"
-	"${FFmpeg_avutil_INCLUDE_DIR}/../../bin${_bin_suffix}/avutil-*.dll"
-	"${FFmpeg_avutil_INCLUDE_DIR}/../bin${_bin_suffix}/avutil-*.dll"
+	"${FFmpeg_avutil_INCLUDE_DIR}/../../bin${_arc_suffix}/avutil-*.dll"
+	"${FFmpeg_avutil_INCLUDE_DIR}/../bin${_arc_suffix}/avutil-*.dll"
 
 	"${FFmpeg_avdevice_INCLUDE_DIR}/../../bin/avdevice-*.dll"
-	"${FFmpeg_avdevice_INCLUDE_DIR}/../../bin${_bin_suffix}/avdevice-*.dll"
-	"${FFmpeg_avdevice_INCLUDE_DIR}/../bin${_bin_suffix}/avdevice-*.dll"
+	"${FFmpeg_avdevice_INCLUDE_DIR}/../../bin${_arc_suffix}/avdevice-*.dll"
+	"${FFmpeg_avdevice_INCLUDE_DIR}/../bin${_arc_suffix}/avdevice-*.dll"
 
 	"${FFmpeg_avfilter_INCLUDE_DIR}/../../bin/avfilter-*.dll"
-	"${FFmpeg_avfilter_INCLUDE_DIR}/../../bin${_bin_suffix}/avfilter-*.dll"
-	"${FFmpeg_avfilter_INCLUDE_DIR}/../../bin${_bin_suffix}/avfilter-*.dll"
+	"${FFmpeg_avfilter_INCLUDE_DIR}/../../bin${_arc_suffix}/avfilter-*.dll"
+	"${FFmpeg_avfilter_INCLUDE_DIR}/../../bin${_arc_suffix}/avfilter-*.dll"
 
 	"${FFmpeg_postproc_INCLUDE_DIR}/../../bin/postproc-*.dll"
-	"${FFmpeg_postproc_INCLUDE_DIR}/../../bin${_bin_suffix}/postproc-*.dll"
-	"${FFmpeg_postproc_INCLUDE_DIR}/../bin${_bin_suffix}/postproc-*.dll"
+	"${FFmpeg_postproc_INCLUDE_DIR}/../../bin${_arc_suffix}/postproc-*.dll"
+	"${FFmpeg_postproc_INCLUDE_DIR}/../bin${_arc_suffix}/postproc-*.dll"
 
 	"${FFmpeg_swscale_INCLUDE_DIR}/../../bin/swscale-*.dll"
-	"${FFmpeg_swscale_INCLUDE_DIR}/../bin${_bin_suffix}/swscale-*.dll"
-	"${FFmpeg_swscale_INCLUDE_DIR}/../../bin${_bin_suffix}/swscale-*.dll"
+	"${FFmpeg_swscale_INCLUDE_DIR}/../bin${_arc_suffix}/swscale-*.dll"
+	"${FFmpeg_swscale_INCLUDE_DIR}/../../bin${_arc_suffix}/swscale-*.dll"
 
 	"${FFmpeg_swresample_INCLUDE_DIR}/../../bin/swresample-*.dll"
-	"${FFmpeg_swresample_INCLUDE_DIR}/../../bin${_bin_suffix}/swresample-*.dll"
-	"${FFmpeg_swresample_INCLUDE_DIR}/../bin${_bin_suffix}/swresample-*.dll"
+	"${FFmpeg_swresample_INCLUDE_DIR}/../../bin${_arc_suffix}/swresample-*.dll"
+	"${FFmpeg_swresample_INCLUDE_DIR}/../bin${_arc_suffix}/swresample-*.dll"
 
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/libopus*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/opus*.dll"
@@ -97,61 +109,61 @@ FILE(GLOB FFmpeg_BIN_FILES
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/libvpx*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin/libvpx*.dll"
 
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_bin_suffix}/libopus*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_bin_suffix}/opus*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/libopus*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/opus*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_arc_suffix}/libopus*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin${_arc_suffix}/opus*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/libopus*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/opus*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/libbz2*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../../bin/zlib*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin/libbz2*.dll"
 	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin/zlib*.dll"
 
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/libbz2*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/zlib*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/libbz2*.dll"
-	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_bin_suffix}/zlib*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/libbz2*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/zlib*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/libbz2*.dll"
+	"${FFmpeg_avcodec_INCLUDE_DIR}/../bin${_arc_suffix}/zlib*.dll"
 	)
 FILE(GLOB SDL2_BIN_FILES
 	"${SDL2_INCLUDE_DIR}/../../bin/SDL*.dll")
 	
 FILE(GLOB X264_BIN_FILES
-	"${X264_INCLUDE_DIR}/../bin${_bin_suffix}/libx264-*.dll"
+	"${X264_INCLUDE_DIR}/../bin${_arc_suffix}/libx264-*.dll"
 	"${X264_INCLUDE_DIR}/../bin/libx264-*.dll"
 	"${X264_INCLUDE_DIR}/bin/libx264-*.dll"
-	"${X264_INCLUDE_DIR}/bin${_bin_suffix}/libx264-*.dll")
+	"${X264_INCLUDE_DIR}/bin${_arc_suffix}/libx264-*.dll")
 
 FILE(GLOB FREETYPE_BIN_FILES
-	"${FREETYPE_INCLUDE_DIR_ft2build}/../../bin${_bin_suffix}/libfreetype*-*.dll"
+	"${FREETYPE_INCLUDE_DIR_ft2build}/../../bin${_arc_suffix}/libfreetype*-*.dll"
 	"${FREETYPE_INCLUDE_DIR_ft2build}/../../bin/libfreetype*-*.dll"
-	"${FREETYPE_INCLUDE_DIR_ft2build}/../bin${_bin_suffix}/libfreetype*-*.dll"
+	"${FREETYPE_INCLUDE_DIR_ft2build}/../bin${_arc_suffix}/libfreetype*-*.dll"
 	"${FREETYPE_INCLUDE_DIR_ft2build}/../bin/libfreetype*-*.dll"
 	"${FREETYPE_INCLUDE_DIR_ft2build}/bin/libfreetype*-*.dll"
-	"${FREETYPE_INCLUDE_DIR_ft2build}/bin${_bin_suffix}/libfreetype*-*.dll")
+	"${FREETYPE_INCLUDE_DIR_ft2build}/bin${_arc_suffix}/libfreetype*-*.dll")
 
 FILE(GLOB LIBFDK_BIN_FILES
-	"${Libfdk_INCLUDE_DIR}/../bin${_bin_suffix}/libfdk*-*.dll"
+	"${Libfdk_INCLUDE_DIR}/../bin${_arc_suffix}/libfdk*-*.dll"
 	"${Libfdk_INCLUDE_DIR}/../bin/libfdk*-*.dll"
 	"${Libfdk_INCLUDE_DIR}/bin/libfdk*-*.dll"
-	"${Libfdk_INCLUDE_DIR}/bin${_bin_suffix}/libfdk*-*.dll")
+	"${Libfdk_INCLUDE_DIR}/bin${_arc_suffix}/libfdk*-*.dll")
 
 FILE(GLOB SSL_BIN_FILES
-	"${SSL_INCLUDE_DIR}/../bin${_bin_suffix}/ssleay32*.dll"
-	"${SSL_INCLUDE_DIR}/../bin${_bin_suffix}/libeay32*.dll"
+	"${SSL_INCLUDE_DIR}/../bin${_arc_suffix}/ssleay32*.dll"
+	"${SSL_INCLUDE_DIR}/../bin${_arc_suffix}/libeay32*.dll"
 	"${SSL_INCLUDE_DIR}/../bin/ssleay32*.dll"
 	"${SSL_INCLUDE_DIR}/../bin/libeay32*.dll"
-	"${SSL_INCLUDE_DIR}/bin${_bin_suffix}/ssleay32*.dll"
-	"${SSL_INCLUDE_DIR}/bin${_bin_suffix}/libeay32*.dll"
+	"${SSL_INCLUDE_DIR}/bin${_arc_suffix}/ssleay32*.dll"
+	"${SSL_INCLUDE_DIR}/bin${_arc_suffix}/libeay32*.dll"
 	"${SSL_INCLUDE_DIR}/bin/ssleay32*.dll"
 	"${SSL_INCLUDE_DIR}/bin/libeay32*.dll")
 
 FILE(GLOB CURL_BIN_FILES
-	"${CURL_INCLUDE_DIR}/../build/Win${_bin_suffix}/VC12/DLL Release - DLL Windows SSPI/libcurl.dll"
-	"${CURL_INCLUDE_DIR}/../bin${_bin_suffix}/libcurl*.dll"
-	"${CURL_INCLUDE_DIR}/../bin${_bin_suffix}/curl*.dll"
+	"${CURL_INCLUDE_DIR}/../build/Win${_arc_suffix}/VC12/DLL Release - DLL Windows SSPI/libcurl.dll"
+	"${CURL_INCLUDE_DIR}/../bin${_arc_suffix}/libcurl*.dll"
+	"${CURL_INCLUDE_DIR}/../bin${_arc_suffix}/curl*.dll"
 	"${CURL_INCLUDE_DIR}/../bin/libcurl*.dll"
 	"${CURL_INCLUDE_DIR}/../bin/curl*.dll"
-	"${CURL_INCLUDE_DIR}/bin${_bin_suffix}/libcurl*.dll"
-	"${CURL_INCLUDE_DIR}/bin${_bin_suffix}/curl*.dll"
+	"${CURL_INCLUDE_DIR}/bin${_arc_suffix}/libcurl*.dll"
+	"${CURL_INCLUDE_DIR}/bin${_arc_suffix}/curl*.dll"
 	"${CURL_INCLUDE_DIR}/bin/libcurl*.dll"
 	"${CURL_INCLUDE_DIR}/bin/curl*.dll"
 	)
@@ -164,9 +176,9 @@ FILE(GLOB ZLIB_BIN_FILES
 
 IF (NOT ZLIB_BIN_FILES)
 	FILE(GLOB ZLIB_BIN_FILES
-		"${ZLIB_INCLUDE_DIR}/../bin${_bin_suffix}/zlib*.dll"
+		"${ZLIB_INCLUDE_DIR}/../bin${_arc_suffix}/zlib*.dll"
 		"${ZLIB_INCLUDE_DIR}/../bin/zlib*.dll"
-		"${ZLIB_INCLUDE_DIR}/bin${_bin_suffix}/zlib*.dll"
+		"${ZLIB_INCLUDE_DIR}/bin${_arc_suffix}/zlib*.dll"
 		"${ZLIB_INCLUDE_DIR}/bin/zlib*.dll"
 		)
 ENDIF()
@@ -255,33 +267,33 @@ file(MAKE_DIRECTORY  ${CMAKE_SOURCE_DIR}/rundir/deps)
 ENDIF()
 
 FOREACH(BinFile ${ALL_BASE_BIN_FILES})
-	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_bin_suffix}")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}/")
+	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_arc_suffix}")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}/")
 ENDFOREACH()
 
 FOREACH(BinFile ${ALL_REL_BIN_FILES})
-	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_bin_suffix}r")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}r/")
+	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_arc_suffix}r")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}r/")
 ENDFOREACH()
 
 FOREACH(BinFile ${ALL_DBG_BIN_FILES})
-	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_bin_suffix}d")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}d/")
+	MESSAGE(STATUS "copying ${BinFile} to ${DEST_COPY_PATH}/exec${_arc_suffix}d")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}d/")
 ENDFOREACH()
 
 FOREACH(BinFile ${ALL_PLATFORM_BIN_FILES})
-	make_directory("${DEST_COPY_PATH}/exec${_bin_suffix}/platforms")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}/platforms/")
+	make_directory("${DEST_COPY_PATH}/exec${_arc_suffix}/platforms")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}/platforms/")
 ENDFOREACH()
 
 FOREACH(BinFile ${ALL_PLATFORM_REL_BIN_FILES})
-	make_directory("${DEST_COPY_PATH}/exec${_bin_suffix}r/platforms")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}r/platforms/")
+	make_directory("${DEST_COPY_PATH}/exec${_arc_suffix}r/platforms")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}r/platforms/")
 ENDFOREACH()
 
 FOREACH(BinFile ${ALL_PLATFORM_DBG_BIN_FILES})
-	make_directory("${DEST_COPY_PATH}/exec${_bin_suffix}d/platforms")
-	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_bin_suffix}d/platforms/")
+	make_directory("${DEST_COPY_PATH}/exec${_arc_suffix}d/platforms")
+	FILE(COPY "${BinFile}" DESTINATION "${DEST_COPY_PATH}/exec${_arc_suffix}d/platforms/")
 ENDFOREACH()
 
 SET(COPIED_DEPENDENCIES TRUE CACHE BOOL "Dependencies have been copied, SET to false to copy again" FORCE)
