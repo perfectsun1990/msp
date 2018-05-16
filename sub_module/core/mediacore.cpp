@@ -493,11 +493,8 @@ MediaCore::OnCurrentTimePoint(int64_t now_ms)
 {
 	if ( now_ms != m_pre_time )
 	{		
-		if (m_observer)
-		{
-			if (now_ms > 0)
+		if ( m_observer && now_ms > 0 )
 				m_observer->OnCurrentTimePoint(now_ms);
-		}
 		m_pre_time = now_ms;
 	}
 	return;
@@ -773,7 +770,8 @@ mergMedia(std::vector<std::string> merg_list, std::string output_dir, std::strin
 			{
 				w = ifmt_ctx->streams[i]->codecpar->width;
 				h = ifmt_ctx->streams[i]->codecpar->height;
-				fps = ifmt_ctx->streams[i]->avg_frame_rate.num / ifmt_ctx->streams[i]->avg_frame_rate.den;
+				AVRational frame_rate = av_guess_frame_rate(ifmt_ctx,ifmt_ctx->streams[i],NULL);
+				fps = frame_rate.num;//ifmt_ctx->streams[i]->avg_frame_rate.num / ifmt_ctx->streams[i]->avg_frame_rate.den;
 			}
 		}
 		avformat_close_input(&ifmt_ctx);

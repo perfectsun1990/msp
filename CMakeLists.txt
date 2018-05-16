@@ -31,8 +31,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/rundir/${_arc_suffix}bit)
 
 # 3.外部依赖模块路径
 # gcc -I path -L path.
-INCLUDE_DIRECTORIES("${CMAKE_SOURCE_DIR}/dependence/win${_arc_suffix}/inc")
-LINK_DIRECTORIES(   "${CMAKE_SOURCE_DIR}/dependence/win${_arc_suffix}/bin")
+INCLUDE_DIRECTORIES("${CMAKE_SOURCE_DIR}/dep*/win${_arc_suffix}/inc")
+LINK_DIRECTORIES(   "${CMAKE_SOURCE_DIR}/dep*/win${_arc_suffix}/bin")
 
 # 4.内部模块递归处理
 SET(SUB_DIRIRECTORIS UI sub_module)

@@ -1,12 +1,7 @@
 
 PROJECT(mediacore)
 
-IF(NOT CMAKE_PREFIX_PATH)
-	FILE(GLOB   CMAKE_EXTERN_PATH "C:/Qt/Qt5.7.*/5.7/msvc201*"
-	"${CMAKE_SOURCE_DIR}/dependenc*/win${_arc_suffix}")
-	LIST(APPEND CMAKE_PREFIX_PATH ${CMAKE_EXTERN_PATH})
-	MESSAGE("Add default search paths<Guess paths>: ${CMAKE_PREFIX_PATH}")
-ENDIF()
+append_default_search_paths(CMAKE_PREFIX_PATH, OFF)
 
 #
 # 针对FFmpeg通用配置,定位包.

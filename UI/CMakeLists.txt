@@ -13,21 +13,25 @@ IF(ENABLE_UI)
 ELSE()
 	SET(FIND_MODE QUIET)
 ENDIF()
+IF(NOT CMAKE_PREFIX_PATH)
+	FILE(GLOB   CMAKE_EXTERN_PATH
+	"C:/Qt/Qt5.*.*/5.*/msvc201*" "D:/Qt/Qt5.*.*/5.*/msvc201*"
+	"${CMAKE_SOURCE_DIR}/dep*/win${_arc_suffix}")
+	LIST(APPEND CMAKE_PREFIX_PATH ${CMAKE_EXTERN_PATH})
+	IF(arg)
+		MESSAGE("[${PROJECT_NAME}] Add default search paths: ${CMAKE_PREFIX_PATH}")
+	ENDIF()
+ENDIF()
+
+append_default_search_paths(CMAKE_PREFIX_PATH, OFF)
 
 # Add default package search directories from $ENV{...}.
-# get_archBits(_arc_suffix)
 IF(DEFINED ENV{QTDI1R${_arc_suffix}} OR DEFINED ENV{DPDIR${_arc_suffix}})
 	LIST(APPEND CMAKE_PREFIX_PATH "$ENV{QTDIR${_arc_suffix}};$ENV{DEPS_DIR${_arc_suffix}}")
 elseif(DEFINED ENV{QTDIR} OR DEFINED ENV{DPDIR}})
 	LIST(APPEND CMAKE_PREFIX_PATH "$ENV{QTDIR};$ENV{DPDIR}")
 ENDIF()
 
-IF(NOT CMAKE_PREFIX_PATH)
-	FILE(GLOB   CMAKE_EXTERN_PATH "C:/Qt/Qt5.7.*/5.7/msvc201*"
-	"${CMAKE_SOURCE_DIR}/dependenc*/win${_arc_suffix}")
-	LIST(APPEND CMAKE_PREFIX_PATH ${CMAKE_EXTERN_PATH})
-	MESSAGE("Add default search paths<Guess paths>: ${CMAKE_PREFIX_PATH}")
-ENDIF()
 #----------------------------------------------------------------------------------
 # 针对Qt5工程通用配置,定位包.
 # Find include files in the source and build directories.
