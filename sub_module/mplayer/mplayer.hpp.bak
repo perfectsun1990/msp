@@ -1,0 +1,21 @@
+﻿
+#pragma  once
+
+typedef struct device
+{
+typedef struct option
+{
+	char key[128];
+	char val[128];
+}option_t;
+	char	 dev[128];
+	char	 url[128];
+	option_t opt[10];
+}device_t;
+// eg.ffmpeg -list_devices true -f dshow -i dummy
+const device_t capture[] = {
+	{ "dshow"		,	"video=dummy"	,{ "list_devices", "true" } },
+	{ "dshow"		,	"video=6RoomsCamV10"	,{ "list_options", "true" } },//debug.
+	{ "vfwcap"		,	"list"			,{ ""			 , "" } },
+	{ "avfoundation",	""				,{ "list_devices", "true" } },
+};

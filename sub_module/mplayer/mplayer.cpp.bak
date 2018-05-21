@@ -1,0 +1,1607 @@
+﻿
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+#include <SDL.h>
+#include <SDL_thread.h>
+
+#include "libavutil/avstring.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/opt.h"
+#include "libavutil/parseutils.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/pixfmt.h"
+#include "libavutil/time.h"
+#include "libavutil/mem.h"
+#include "libavutil/timestamp.h"
+
+#include "libavdevice/avdevice.h"
+#include "libavfilter/avfilter.h"
+#include "libavcodec/avcodec.h"
+#include "libavformat/avformat.h"
+#include "libswresample/swresample.h"
+#include "libswscale/swscale.h"
+
+#undef main 
+#ifdef __cplusplus
+}
+#endif
+
+#include <iostream>
+#include "mplayer.hpp"
+#include "mrender.hpp"
+
+#ifdef WIN32
+#include <windows.h>
+#include <corecrt_io.h>
+#else
+#include <unistd.h>
+#endif
+
+void
+debug_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt, const char *tag)
+{
+	AVRational *time_base = &fmt_ctx->streams[pkt->stream_index]->time_base;
+	printf("[PACKET]%s #stream-%d# (%d/%d): iskey=%d, pts:%lld pts_time=%0.6g(s) dts:%lld dts_time=%0.6g(s) duration=%lld, duration_time=%0.6g(ms)\n",
+		tag, pkt->stream_index, time_base->num, time_base->den, pkt->flags,
+		pkt->pts, pkt->pts*av_q2d(*time_base) , pkt->dts, pkt->dts*av_q2d(*time_base), pkt->duration, 1000*pkt->duration*av_q2d(*time_base));
+}
+
+void
+debug_frames(const AVCodecContext *codec_ctx, const AVFrame *frm, const char *tag)
+{
+	bool is_audio = (frm->width == 0);
+	const AVRational *time_base = &codec_ctx->time_base;
+	printf("[FRAMES]%s #baudio-%d# (%d/%d): iskey=%d, pts:%lld pts_time=%0.6g(s) -->pkt_dts:%lld pkt_duration=%lld pkt_duration_time=%0.6g(ms)\n",
+		tag, is_audio, time_base->num, time_base->den, frm->key_frame,
+		frm->pts, frm->pts*av_q2d(*time_base), frm->pkt_dts, frm->pkt_duration, 1000 * frm->pkt_duration*av_q2d(*time_base));
+}
+
+void
+debug_write_rgb24(AVFrame *frame)
+{
+	if (NULL == frame)
+		return;
+	char name[128] = {0};
+	sprintf(name, "./test_%dx%d_%lld.rgb", frame->width, frame->height, time(NULL));
+	static FILE *fp = NULL;
+	if (NULL == fp)
+		fp = fopen(name, "wb+");
+	if (NULL == fp)
+		return;
+	
+	//write yuv420p
+	fwrite(frame->extended_data[0], 1, frame->width*frame->height * 3, fp);
+	//fwrite(frame->data[0] , frame->width*frame->height , 1, fp);
+	fflush(fp);
+
+}
+
+static inline int32_t
+ffmpeg2SdlFormat(int32_t type, int32_t format)
+{
+	int32_t sdl_format = -1;
+	if (AVMEDIA_TYPE_VIDEO == type)
+	{
+		switch (format)
+		{
+		case AV_PIX_FMT_YUV420P:
+			sdl_format = SDL_PIXELFORMAT_IYUV;
+			break;
+		case AV_PIX_FMT_NV12:
+			sdl_format = SDL_PIXELFORMAT_NV12;
+			break;
+		case AV_PIX_FMT_NV21:
+			sdl_format = SDL_PIXELFORMAT_NV21;
+			break;
+		case AV_PIX_FMT_RGB24:
+			sdl_format = SDL_PIXELFORMAT_RGB24;
+			break;
+		case AV_PIX_FMT_BGR24:
+			sdl_format = SDL_PIXELFORMAT_BGR24;
+			break;
+		case AV_PIX_FMT_ARGB:
+			sdl_format = SDL_PIXELFORMAT_BGRA32;
+			break;
+			break;
+		default:
+			printf("err fmt!=%d\n", format);
+			return -1;
+		}
+	}
+	if (AVMEDIA_TYPE_AUDIO == type)
+	{
+		switch (format)
+		{
+		case AV_SAMPLE_FMT_U8:
+		case AV_SAMPLE_FMT_U8P:
+			sdl_format = AUDIO_U8;
+			break;
+		case AV_SAMPLE_FMT_S16:
+		case AV_SAMPLE_FMT_S16P:
+			sdl_format = AUDIO_S16SYS;
+			break;
+		case AV_SAMPLE_FMT_S32:
+		case AV_SAMPLE_FMT_S32P:
+			sdl_format = AUDIO_S32SYS;
+			break;
+		case AV_SAMPLE_FMT_FLT:
+		case AV_SAMPLE_FMT_FLTP:
+		case AV_SAMPLE_FMT_DBL:
+		case AV_SAMPLE_FMT_DBLP:
+			sdl_format = AUDIO_F32SYS;
+			break;
+		default:
+			printf("err fmt!=%d\n", format);
+			return -1;
+		}
+	}
+
+	return sdl_format;
+}
+
+#include <iostream>
+#include <memory>
+#include <thread>
+#include <future>
+#include <atomic>
+#include <chrono>
+#include <vector>
+#include <string>
+#include <condition_variable>
+#include <mutex>
+#include <queue>
+#include <functional>
+#include <cassert>
+
+void
+av_pcm_freep(char* pcm_data)
+{
+	free((void*)pcm_data);
+}
+
+char*
+av_pcm_clone(AVFrame *frame)
+{
+	assert(NULL != frame);
+
+	int32_t bytes_per_sample = av_get_bytes_per_sample((enum AVSampleFormat)frame->format);
+	char* p_cur_ptr = NULL, *pcm_data = NULL;
+	if (bytes_per_sample <= 0)
+		return NULL;
+
+
+	// 1.For packet sample foramt and 1 channel,we just store pcm data in byte order.
+	if ((1 == frame->channels)
+		|| (frame->format >= AV_SAMPLE_FMT_U8 &&  frame->format <= AV_SAMPLE_FMT_DBL))
+	{//linesize[0] maybe 0 or has padding bits,so calculate the real size by ourself.		
+		int32_t frame_size = frame->channels*frame->nb_samples*bytes_per_sample;
+		p_cur_ptr = pcm_data = (char*)calloc(1, frame_size);
+		memcpy(p_cur_ptr, frame->data[0], frame_size);
+	}
+	else
+	{//2.For plane sample foramt, we must store pcm datas interleaved. [LRLRLR...LR].
+		int32_t frame_size = frame->channels*frame->nb_samples*bytes_per_sample;
+		p_cur_ptr = pcm_data = (char*)calloc(1, frame_size);
+		for (int i = 0; i < frame->nb_samples; ++i)
+		{
+			memcpy(p_cur_ptr, frame->data[0] + i*bytes_per_sample, bytes_per_sample);
+			p_cur_ptr += bytes_per_sample;
+			memcpy(p_cur_ptr, frame->data[1] + i*bytes_per_sample, bytes_per_sample);
+			p_cur_ptr += bytes_per_sample;
+		}
+	}
+	return pcm_data;
+}
+
+void
+debug_write_pcm(AVFrame *frame)
+{
+	if (NULL == frame)
+		return;
+
+	char name[128] = {};
+	int32_t bytes_per_sample = av_get_bytes_per_sample((enum AVSampleFormat)frame->format);
+	sprintf(name, "./test_%dx%dx%dx%d_%lld.pcm",
+		frame->sample_rate, frame->channels, frame->nb_samples, bytes_per_sample, time(NULL));
+
+	static FILE *fp = NULL;
+	if (NULL == fp)
+		fp = fopen(name, "wb+");
+	if (NULL == fp)
+		return;
+#if 0
+	printf("format=%d, channel=%d,nb_samples=%d,bytes_per_sample=%d,linesize[0]=%d,inesize[1]=%d\n",
+		frame->format, frame->channels, frame->nb_samples, bytes_per_sample, frame->linesize[0], frame->linesize[1]);
+#endif
+
+#if 0
+	int32_t frame_size = frame->channels*frame->nb_samples*bytes_per_sample;
+	char* pcm_data = av_pcm_clone(frame);
+	fwrite(pcm_data, 1, frame_size, fp);
+	av_pcm_freep(pcm_data);
+#else
+	// 1.For packet sample foramt and 1 channel,we just store pcm data in byte order.
+	if ((1 == frame->channels)
+		|| (frame->format >= AV_SAMPLE_FMT_U8 &&  frame->format <= AV_SAMPLE_FMT_DBL))
+	{//linesize[0] maybe 0 or has padding bits,so calculate the real size by ourself.
+		int32_t frame_size = frame->channels*frame->nb_samples*bytes_per_sample;
+		fwrite(frame->data[0], 1, frame_size, fp);
+	}
+	else
+	{//2.For plane sample foramt, we must store pcm datas interleaved. [LRLRLR...LR].
+		for (int i = 0; i < frame->nb_samples; ++i)
+		{
+			fwrite(frame->data[0] + i*bytes_per_sample, 1, bytes_per_sample, fp);
+			fwrite(frame->data[1] + i*bytes_per_sample, 1, bytes_per_sample, fp);
+		}
+	}
+#endif
+	fflush(fp);
+}
+
+void
+av_yuv420p_freep(char* yuv420_data)
+{
+	free(yuv420_data);
+}
+
+char*
+av_yuv420p_clone(AVFrame *frame)
+{
+	assert(NULL != frame);
+
+	int32_t y_size = frame->width*frame->height;
+	char* yuv420_data = (char*)calloc(1, y_size * 3 / 2);
+	char* p_cur_ptr = yuv420_data;
+
+	if (NULL == yuv420_data || y_size <= 0)
+		return NULL;
+
+	// dump yuv420
+	for (int32_t i = 0; i < frame->height; ++i)
+		memcpy(p_cur_ptr + frame->width*i, frame->data[0] + frame->linesize[0] * i, frame->width);
+	p_cur_ptr += y_size;
+	for (int32_t i = 0; i < frame->height / 2; ++i)
+		memcpy(p_cur_ptr + i*frame->width / 2, frame->data[1] + frame->linesize[1] * i, frame->width / 2);
+	p_cur_ptr += y_size / 4;
+	for (int32_t i = 0; i < frame->height / 2; ++i)
+		memcpy(p_cur_ptr + i*frame->width / 2, frame->data[2] + frame->linesize[2] * i, frame->width / 2);
+
+	return yuv420_data;
+}
+
+void
+debug_write_yuv420p(AVFrame *frame)
+{
+	if (NULL == frame)
+		return;
+
+	char name[128] = {};
+	sprintf(name, "./test_%dx%d_%lld.yuv", frame->width, frame->height, time(NULL));
+
+	static FILE *fp = NULL;
+	if (NULL == fp)
+		fp = fopen(name, "wb+");
+	if (NULL == fp)
+		return;
+
+#if 1//剥离AVFrame中的裸数据。
+	char* yuv420_data = av_yuv420p_clone(frame);
+	fwrite(yuv420_data, 1, frame->width*frame->height * 3 / 2, fp);
+	av_yuv420p_freep(yuv420_data);
+#else
+	//write yuv420p
+	for (int32_t i = 0; i < frame->height; ++i)
+		fwrite(frame->data[0] + frame->linesize[0] * i, 1, frame->width, fp);
+	for (int32_t i = 0; i < frame->height / 2; ++i)
+		fwrite(frame->data[1] + frame->linesize[1] * i, 1, frame->width / 2, fp);
+	for (int32_t i = 0; i < frame->height / 2; ++i)
+		fwrite(frame->data[2] + frame->linesize[2] * i, 1, frame->width / 2, fp);
+#endif
+	fflush(fp);
+}
+
+// typedef enum STATUS
+// {
+// 	E_INVALID = -1,
+// 	E_INITRES,	
+// 	E_STRTING,
+// 	E_STARTED,
+// 	E_STOPING,
+// 	E_STOPPED,
+// 	E_DESTROY,
+// }STATUS;
+
+typedef struct AVpkt
+{
+	int32_t     type{ -1 };
+	double		dpts{ -1 };
+	AVPacket* 	ppkt{ nullptr };
+}AVpkt;
+
+typedef struct AVfrm
+{
+	int32_t     type{ -1 };
+	double		dpts{ -1 };
+	AVFrame* 	pfrm{ nullptr };
+}AVfrm;
+
+#if 1
+std::queue<AVpkt>		apkts_Q;
+std::recursive_mutex	apkts_Q_mutex;
+std::queue<AVpkt>		vpkts_Q;
+std::recursive_mutex	vpkts_Q_mutex;
+std::queue<AVfrm>		afrms_Q;
+std::recursive_mutex	afrms_Q_mutex;
+std::queue<AVfrm>		vfrms_Q;
+std::recursive_mutex	vfrms_Q_mutex;
+#else
+lfqueue<AVpkt*>		apkts_Q;
+lfqueue<AVpkt*>		vpkts_Q;
+lfqueue<AVfrm*>		afrms_Q;
+lfqueue<AVfrm*>		vfrms_Q;
+std::recursive_mutex	apkts_Q_mutex;
+std::recursive_mutex	vpkts_Q_mutex;
+std::recursive_mutex	vfrms_Q_mutex;
+std::recursive_mutex	afrms_Q_mutex;
+#endif
+
+
+#define  MAX_Q_AUDIO_SIZE  43*3
+#define  MAX_Q_VIDEO_SIZE  25*3
+
+// 解复用器
+class Demuxer
+{
+public:
+	#define SET_CMPT_STATUS(x)	do {m_status=x;} while (0)
+	Demuxer(const char *urls) :
+		m_urls(urls)
+	{
+		SET_CMPT_STATUS(E_INVALID);	
+		
+		//注册ffmpeg，读取输入信息。
+		av_register_all();
+		avdevice_register_all();
+		avfilter_register_all();
+		avformat_network_init();
+
+		int32_t ret = -1;
+		if ((ret = avformat_open_input(&m_ictx, m_urls.c_str(), nullptr, nullptr)) < 0) {
+			av_log(nullptr, AV_LOG_ERROR, "Open file failed! urls=%s!\n", m_urls.c_str());
+			return;
+		}
+		// 获取文件所有流信息，填充ifmt_ctx->iformat(AVInputFormat)等字段。
+		if ((ret = avformat_find_stream_info(m_ictx, nullptr)) < 0) {
+			av_log(nullptr, AV_LOG_ERROR, "Find stream info failed!%s\n", m_urls.c_str());
+			return;
+		}
+		av_dump_format(m_ictx, 0, m_urls.c_str(), 0);
+
+		SET_CMPT_STATUS(E_INITRES);
+	}
+
+	~Demuxer()
+	{
+		if ( E_STOPPED != cmptStatus() )
+			stopd(true);
+		SET_CMPT_STATUS(E_INVALID);
+		
+		avformat_close_input(&m_ictx);
+	}
+
+	STATUS  cmptStatus(void)
+	{
+		return m_status;
+	}
+
+	int64_t durationMs(void)
+	{
+		return (E_INVALID == cmptStatus()) ? -1 :
+			m_ictx->duration / 1000;
+	}
+
+	int32_t streamNums(void)
+	{
+		return (E_INVALID == cmptStatus()) ? -1 :
+			m_ictx->nb_streams;
+	}
+
+	int32_t streamType(int32_t indx)
+	{
+		return ( E_INVALID == cmptStatus()
+			||	indx < (int32_t)AVMEDIA_TYPE_VIDEO
+			||	indx > (int32_t)AVMEDIA_TYPE_NB) ? -1 :
+			(int32_t)m_ictx->streams[indx]->codecpar->codec_type;
+	}
+
+	void* streamInfo(int32_t type)
+	{
+		if ( E_INVALID != cmptStatus() )
+		{
+			for ( uint32_t i=0; i<m_ictx->nb_streams; i++ )
+				if ((int32_t)m_ictx->streams[i]->codecpar->codec_type == type)
+					return m_ictx->streams[i];
+		}
+		return nullptr;
+	}
+
+	void seek2Tpoint(int64_t seek_time)
+	{		
+		if (!m_need_seek)
+		{
+			m_seek_time = seek_time;
+			m_seek_flag = AVSEEK_FLAG_BACKWARD;
+			m_need_seek = true;
+			av_log(nullptr, AV_LOG_INFO, "seek to %lld ms \n", m_seek_time/1000);
+		}
+	}
+
+	void start()
+	{
+		if (E_STARTED == cmptStatus() || E_STRTING == cmptStatus())
+			return;
+		
+		SET_CMPT_STATUS(E_STRTING);
+
+		m_worker = std::thread([&](void)
+		{
+			int32_t	ret = -1;
+			while (!m_stop)
+			{
+				// 1.处理定位seek操作.		
+				if ((ret = do_seeking(m_seek_time)) < 0) {					
+					av_log(nullptr, AV_LOG_ERROR, "Demuxer seek frame failed! ret=%d\n", ret);
+					break;
+				}
+// 				// 2.工作队列满则等待.
+// 				//if ()
+// 				{
+// 					std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
+// 					if (apkts_Q.size() >= MAX_Q_AUDIO_SIZE )
+// 					{
+// 						av_usleep(10 * 1000);//10ms
+// 						continue;
+// 					}
+// 				}
+// 
+// 			//	if ()
+// 				{
+// 					std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);
+// 					if (vpkts_Q.size() >= MAX_Q_VIDEO_SIZE)
+// 					{
+// 						av_usleep(10 * 1000);//10ms
+// 						continue;
+// 					}
+// 				}
+				// 3.读取一帧数据AVPacket.
+				AVpkt avpkt;
+				if ( nullptr == (avpkt.ppkt = av_packet_alloc()) ){
+					av_log(nullptr, AV_LOG_ERROR, "Demuxer av_packet_alloc failed!\n");
+					av_packet_free(&avpkt.ppkt);					
+					break;
+				}
+				if ((ret = av_read_frame(m_ictx, avpkt.ppkt)) < 0)
+				{
+					av_packet_free(&avpkt.ppkt);					
+					if (ret == AVERROR_EOF)
+					{
+						av_usleep(10 * 1000);//10ms				
+						continue;
+					}else {
+						av_log(nullptr, AV_LOG_ERROR, "Demuxer read frame failed! ret=%d\n", ret);						
+						break;
+					}
+				}
+
+				// 4.打包发送到解码器.
+				avpkt.type = m_ictx->streams[avpkt.ppkt->stream_index]->codecpar->codec_type;
+				avpkt.dpts = avpkt.ppkt->pts*av_q2d(m_ictx->streams[avpkt.ppkt->stream_index]->time_base);
+				assert(avpkt.dpts != -1 && avpkt.ppkt != nullptr);
+				if (avpkt.type == AVMEDIA_TYPE_AUDIO)
+				{
+					std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
+					apkts_Q.push(avpkt);					
+				}
+				if (avpkt.type == AVMEDIA_TYPE_VIDEO)
+				{
+					std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);					
+					vpkts_Q.push(avpkt);				
+				}					
+			}
+			av_log(nullptr, AV_LOG_WARNING, "Demuxer finished! ret=%d\n", ret);
+		});
+
+		if (nullptr_id != m_worker.get_id())
+			SET_CMPT_STATUS(E_STARTED);
+	}
+
+	void stopd(bool stop_quik = false)
+	{
+		if ( E_STOPPED == cmptStatus() || E_STOPING == cmptStatus())
+			return;
+
+		SET_CMPT_STATUS(E_STOPING);
+		m_stop = true;
+		m_stop_quik = stop_quik;
+		if (m_worker.joinable()) m_worker.join();
+		m_stop = false;
+		m_stop_quik = false;		
+		avpkts_Q_cleanup();
+		SET_CMPT_STATUS(E_STOPPED);
+	}
+
+private:
+	int32_t do_seeking(int64_t seek_time)
+	{
+		int64_t m_seek_time = seek_time;
+		int32_t ret = -1;
+		if ( !m_need_seek || seek_time > m_ictx->duration ){
+			return ret=0;
+		}
+
+		if ( (ret = av_seek_frame(m_ictx, -1, m_seek_time + m_ictx->start_time, m_seek_flag)) < 0 )
+		{
+			av_log(nullptr, AV_LOG_ERROR, "Can't seek stream: ret=%d", ret);
+			return ret;
+		}else {
+			//Demuxer 用户进行seek操作后， 会立即刷新pkts队列，并追加seek-pkts空包,
+			//Decoder 遇到seek-pkts空包后，会立即刷新frms队列，并追加seek-frms空包。
+			//Mrender 遇到seek-frms空包后，可选择渲染黑屏(静音)或保留最后一帧(静音)。		
+			avpkts_Q_cleanup();
+			std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
+			std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);
+			apkts_Q.push(AVpkt());	
+			vpkts_Q.push(AVpkt());
+		}
+		m_need_seek = false;
+		return 0;
+	}
+
+	void avpkts_Q_cleanup( void )
+	{
+		std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
+		std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);
+
+		// clear audio queue
+		while (!apkts_Q.empty())
+		{
+			AVpkt avpkt = apkts_Q.front();
+			apkts_Q.pop();
+			av_packet_free(&avpkt.ppkt);			
+		}			
+		// clear video queue		
+		while (!vpkts_Q.empty())
+		{
+			AVpkt avpkt = vpkts_Q.front();
+			vpkts_Q.pop();
+			av_packet_free(&avpkt.ppkt);			
+		}
+	}
+private:
+	std::atomic<STATUS>		m_status{ E_INVALID};
+	AVFormatContext*		m_ictx{ nullptr };
+	std::thread::id 		nullptr_id;
+	std::thread 			m_worker;
+	std::atomic<bool>		m_done{ false };
+	std::atomic<bool>		m_stop{ false };
+	std::atomic<bool>		m_stop_quik{ false };
+	std::atomic<bool>		m_need_seek{ false };
+	std::atomic<int64_t>	m_seek_time{ 0 };
+	std::atomic<int32_t>	m_seek_flag{ 1 };
+	std::string 			m_urls{ nullptr };
+};
+
+// 解码器
+class Decoder
+{
+public:
+	//#define SET_CMPT_STATUS(x)	do {m_status=x;} while (0)
+	Decoder(void *stream)
+	{
+		SET_CMPT_STATUS(E_INVALID);
+
+		if (!stream) {
+			av_log(nullptr, AV_LOG_ERROR, "Decoder invalid input params!\n");
+			return;
+		}
+		// 初始化codec.codec_contex.		
+		AVStream *st = static_cast<AVStream*>(stream);
+		m_dec = avcodec_find_decoder(st->codecpar->codec_id);
+		if (!m_dec) {
+			av_log(nullptr, AV_LOG_ERROR, "Failed to find decoder for stream #%d\n", st->codecpar->codec_id);
+			return;
+		}
+		// 申请并初始化stream_ctx[i]->dec_ctx，codecpar包含了大部分解码器相关的信息，拷贝过去。
+		m_dec_ctx = avcodec_alloc_context3(m_dec);
+		if (!m_dec_ctx) {
+			av_log(nullptr, AV_LOG_ERROR, "Failed to allocate the decoder context for stream !");
+			return;
+		}
+		int32_t ret = avcodec_parameters_to_context(m_dec_ctx, st->codecpar);
+		if (ret < 0) {
+			av_log(nullptr, AV_LOG_ERROR, "Failed to copy decoder parameters to input decoder context\n");
+			return;
+		}
+		// 打开解码器.
+		if (m_dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO
+			|| m_dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO)
+		{
+			if (m_dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+				m_dec_ctx->framerate = av_guess_frame_rate(nullptr, st, nullptr);
+			if ((ret = avcodec_open2(m_dec_ctx, m_dec, nullptr)) < 0) {
+				av_log(nullptr, AV_LOG_ERROR, "Failed to open decoder for stream\n");
+				return;
+			}
+		}
+		m_st_time_base = st->time_base;
+
+		SET_CMPT_STATUS(E_INITRES);
+	};
+
+	~Decoder()
+	{
+		if (E_STOPPED != cmptStatus())
+			stopd(true);
+		SET_CMPT_STATUS(E_INVALID);
+
+		//销毁codec.codec_contex.释放内存		
+		avcodec_free_context(&m_dec_ctx);
+	};
+
+	STATUS  cmptStatus(void)
+	{
+		return m_status;
+	}
+
+	void* 	decoderCtx(void)
+	{
+		return (E_INVALID == cmptStatus()) ? nullptr :
+			m_dec_ctx;
+	}
+
+	void start()
+	{
+		if (E_STARTED == cmptStatus() || E_STRTING == cmptStatus())
+			return;
+		SET_CMPT_STATUS(E_STRTING);
+
+		m_worker = std::thread([&]()
+		{
+			int32_t ret = 0;
+			while (!m_stop)
+			{
+				auto beg = std::chrono::high_resolution_clock::now();
+
+				// 获取解封装后的包数据.
+				AVpkt avpkt;
+				if ( m_dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO )
+				{
+					std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+					// afrms_Q满，等待。
+					if (afrms_Q.size() >= MAX_Q_AUDIO_SIZE)
+					{
+						av_usleep(10 * 1000);//10ms
+						continue;
+					}else{
+						std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
+						// apkts_Q空，等待。
+						if (!apkts_Q.empty())
+						{
+							avpkt = apkts_Q.front();
+							apkts_Q.pop();
+						}else {
+							av_usleep(10 * 1000);//10ms
+							continue;
+						}
+					}
+				}
+
+				if (m_dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+				{	
+					std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);
+					// afrms_Q满，等待。
+					if (vfrms_Q.size() >= MAX_Q_AUDIO_SIZE)
+					{
+						av_usleep(10 * 1000);//10ms
+						continue;
+					}else {
+						std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);
+						// apkts_Q空，等待。
+						if (!vpkts_Q.empty())
+						{
+							avpkt = vpkts_Q.front();
+							vpkts_Q.pop();
+						}else {
+							av_usleep(10 * 1000);//10ms
+							continue;
+						}
+					}
+				}
+
+				// 清空SDL显示队列(SEEK)
+				if ( nullptr == avpkt.ppkt || -1 == avpkt.type )
+				{
+					if ( m_dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO )
+					{
+						av_log(nullptr, AV_LOG_WARNING, "Reset audio pkts queue!\n");					
+						avfrms_Q_cleanup(m_dec_ctx->codec_type);
+						std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+						afrms_Q.push(AVfrm());
+					}
+				
+					if (m_dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+					{
+						av_log(nullptr, AV_LOG_WARNING, "Reset video pkts queue!\n");
+						avfrms_Q_cleanup(m_dec_ctx->codec_type);
+						std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);
+						vfrms_Q.push(AVfrm());
+					}		
+					// Reset decoder status,must be call when seeking.
+					avcodec_flush_buffers(m_dec_ctx);
+					continue;
+				}
+
+				// 解码前必须将时间戳转换成解码器的时间基。eg.1/50 1/44100
+				av_packet_rescale_ts(avpkt.ppkt, m_st_time_base, m_dec_ctx->time_base);					
+#if 1
+				int got_frame=0;
+				AVfrm avfrm;
+				if (nullptr == (avfrm.pfrm = av_frame_alloc())) {
+					av_log(nullptr, AV_LOG_ERROR, "Decoder av_frame_alloc failed!\n");
+					break;
+				}
+				int(*dec_func)(AVCodecContext *, AVFrame *, int *, const AVPacket *);
+				dec_func = (m_dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) ? avcodec_decode_video2 : avcodec_decode_audio4;
+				ret = dec_func(m_dec_ctx, avfrm.pfrm, &got_frame, avpkt.ppkt);
+				if (ret < 0) {
+					av_frame_free(&avfrm.pfrm);
+					av_packet_free(&avpkt.ppkt);
+					av_log(NULL, AV_LOG_ERROR, "Decoding failed\n");
+					continue;
+				}
+
+				if (got_frame)
+				{
+					avfrm.type = avpkt.type;
+					avfrm.dpts = avpkt.dpts;
+					avfrm.pfrm->pts = avfrm.pfrm->best_effort_timestamp;
+
+					// 4.打包发送到渲染器.					
+					if (avfrm.type == AVMEDIA_TYPE_AUDIO)
+					{
+						std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+						afrms_Q.push(avfrm);
+					}
+					if (avfrm.type == AVMEDIA_TYPE_VIDEO)
+					{
+						std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);
+						vfrms_Q.push(avfrm);
+					}
+
+				}
+				// 6.销毁avpkt包数据					
+				av_packet_free(&avpkt.ppkt);
+#else
+				// 2.送去解码
+				if ( (ret = avcodec_send_packet(m_dec_ctx, avpkt.ppkt)) == 0 )
+				{
+					while (true)
+					{// 3.阻塞读取解码出来的帧数据.					
+						AVfrm avfrm;				
+						if (nullptr == (avfrm.pfrm = av_frame_alloc())) {
+							av_log(nullptr, AV_LOG_ERROR, "Decoder av_frame_alloc failed!\n");							
+							break;
+						}
+
+						if ((ret = avcodec_receive_frame(m_dec_ctx, avfrm.pfrm) < 0))
+						{
+							if (ret != -(EAGAIN) && ret != AVERROR_EOF)
+								av_log(nullptr, AV_LOG_ERROR, "Decoding failed!ret=%d\n",ret);
+							av_frame_free(&avfrm.pfrm);						
+							break;;
+						}				
+					
+						avfrm.type = avpkt.type;
+						avfrm.dpts = avpkt.dpts;
+						avfrm.pfrm->pts = avfrm.pfrm->best_effort_timestamp;
+
+						// 4.打包发送到渲染器.					
+						if (avfrm.type == AVMEDIA_TYPE_AUDIO)
+						{
+							std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+							afrms_Q.push(avfrm);
+						}
+						if (avfrm.type == AVMEDIA_TYPE_VIDEO)
+						{
+							std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);								
+							vfrms_Q.push(avfrm);						
+						}
+					}
+					auto end = std::chrono::high_resolution_clock::now();
+					auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - beg);
+					std::cout <<"@avpkt.type ="<< avpkt.type << " dcoder loop elaps="
+						<< double(duration.count()) << "ms" << " ts=" <<"avpkt.dpts="<< avpkt.dpts << std::endl;
+					// 6.销毁avpkt包数据					
+					av_packet_free(&avpkt.ppkt);
+				}else {	
+					av_log(nullptr, AV_LOG_ERROR, "avcodec_send_frame failed!\n");
+					av_packet_free(&avpkt.ppkt);					
+					av_usleep(1000 * 10);
+					continue;
+				}
+#endif
+			}
+			av_log(nullptr, AV_LOG_WARNING, "Decoder finished! ret=%d\n", ret);
+		});
+
+		if (nullptr_id != m_worker.get_id())
+			m_status = E_STARTED;
+	}
+
+	void stopd(bool stop_quik = false)
+	{
+		if (E_STOPPED == cmptStatus() || E_STOPING == cmptStatus())
+			return;
+
+		SET_CMPT_STATUS(E_STOPING);
+		m_stop = true;
+		m_stop_quik = stop_quik;
+		if (m_worker.joinable()) m_worker.join();
+		m_stop = false;
+		m_stop_quik = false;
+		avfrms_Q_cleanup(AVMEDIA_TYPE_AUDIO);
+		avfrms_Q_cleanup(AVMEDIA_TYPE_VIDEO);
+		SET_CMPT_STATUS(E_STOPPED);
+	}
+	
+	void avfrms_Q_cleanup(int32_t type)
+	{
+		if (AVMEDIA_TYPE_AUDIO == type)
+		{
+			std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);
+			while (!vfrms_Q.empty())
+			{
+				AVfrm avfrm = vfrms_Q.front();
+				vfrms_Q.pop();
+				av_frame_free(&avfrm.pfrm);
+			}
+		}
+
+		if (AVMEDIA_TYPE_VIDEO == type)
+		{
+			std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+			while (!afrms_Q.empty())
+			{
+				AVfrm avfrm = afrms_Q.front();
+				afrms_Q.pop();
+				av_frame_free(&avfrm.pfrm);
+			}
+		}
+	}
+private:
+	std::atomic<STATUS>		m_status{ E_INVALID };
+
+	std::thread::id 		nullptr_id;
+	std::thread 			m_worker;
+	AVCodec*				m_dec;
+	AVCodecContext*			m_dec_ctx;
+	AVRational 				m_st_time_base{ 0,0 };
+
+	std::atomic<bool>		m_done{ false };
+	std::atomic<bool>		m_stop{ false };
+	std::atomic<bool>		m_stop_quik{ false };
+};
+
+#define  USE_OUT_RENDER 1
+
+class MpTimer;
+// 渲染器
+class Mrender
+{
+public:
+	Mrender(void* dec_inf, void* hdwn = nullptr)
+	{
+		assert(nullptr != dec_inf);
+
+		AVCodecContext* dec_ctx = (AVCodecContext*)dec_inf;
+	
+		// 拷贝编解码参数。
+		m_codecpr = avcodec_parameters_alloc();
+		if (nullptr == m_codecpr) {
+			av_log(nullptr, AV_LOG_ERROR, "Failed to alloc decoder parameters!");
+			return;
+		}
+		int32_t ret = avcodec_parameters_from_context(m_codecpr, dec_ctx);
+		if (ret < 0) {
+			av_log(nullptr, AV_LOG_ERROR, "Failed to copy decoderCtx to decoder parameters");
+			return;
+		}
+		m_frmrate = dec_ctx->framerate;
+		m_codectb = dec_ctx->time_base;
+		if (m_codecpr->codec_type == AVMEDIA_TYPE_VIDEO){
+			m_winhdnw = hdwn;
+#if USE_OUT_RENDER
+			m_vrender_core = IVideoMrender::create(m_winhdnw);
+			m_vrender_core->start();
+#endif
+		}else{
+			if (nullptr != hdwn)
+				m_speaker = (char*)hdwn;
+#if USE_OUT_RENDER
+			m_arender_core = IAudioMrender::create((char*)m_speaker.c_str());
+			m_arender_core->start();
+#endif
+		}
+		
+		SET_CMPT_STATUS(E_INITRES);
+	}
+
+	~Mrender()
+	{
+		if (E_STOPPED != cmptStatus())
+			stopd(true);
+		SET_CMPT_STATUS(E_INVALID);		
+		avcodec_parameters_free(&m_codecpr);
+	}
+	
+	void
+	register_timer(std::shared_ptr<MpTimer> timer)
+	{
+		m_mptimer = timer;
+		//m_mptimer->SyncWait(millis_t(1000),(this->cmptStatus));
+	}
+
+	STATUS cmptStatus(void)
+	{
+		return m_status;
+	}
+	
+	double currTimePt(void)
+	{
+		return m_cur_time;
+	}
+
+	void   setRenderPause(bool bpause)
+	{
+		m_paus = bpause;
+	}
+
+	void start()
+	{
+		if (E_STARTED == cmptStatus() || E_STRTING == cmptStatus())
+			return;
+
+		SET_CMPT_STATUS(E_STRTING);
+
+		m_worker = std::thread([&]()
+		{
+			int32_t ret = 0;
+#if USE_OUT_RENDER
+#else
+			// 创建SDL渲染服务
+			ret = openAVDevice();
+			if (ret < 0) {
+				av_log(nullptr, AV_LOG_ERROR, "Failed to open [%d] dev!", m_codecpr->codec_type);
+				return;
+			}
+#endif
+			//m_mptimer->AsynWait();
+// 			if (m_mptimer)
+// 				m_mptimer->refresh_next_wake_time(millis_t(23));
+		
+
+			while (!m_stop)
+			{
+				auto beg = std::chrono::high_resolution_clock::now();
+				// 1.暂停取帧渲染
+				if (m_paus)
+				{
+					av_usleep(10 * 1000);
+					continue;
+				}
+				// 2.读取一帧数据
+				AVfrm avfrm;
+				if ( m_codecpr->codec_type == AVMEDIA_TYPE_AUDIO )
+				{
+					if (afrms_Q.empty())
+					{
+						av_usleep(10 * 1000);//1ms					
+						av_log(nullptr, AV_LOG_WARNING, "Mrender: afrms_Q is empty\n");
+						continue;
+					}else {
+						//std::lock_guard<std::recursive_mutex> alocker(afrms_Q_mutex);
+						avfrm = afrms_Q.front();
+						afrms_Q.pop();					
+					}
+				}
+
+				if ( m_codecpr->codec_type == AVMEDIA_TYPE_VIDEO )
+				{
+					
+					if (vfrms_Q.empty())
+					{
+						av_usleep(10 * 1000);//1ms
+						av_log(nullptr,AV_LOG_WARNING,"Mrender: vfrms_Q is empty\n");
+						continue;
+					}else {
+						//std::lock_guard<std::recursive_mutex> vlocker(vfrms_Q_mutex);
+						avfrm = vfrms_Q.front();
+						vfrms_Q.pop();
+					}
+				}
+
+				if (nullptr == avfrm.pfrm || -1 == avfrm.dpts) {
+					av_log(nullptr, AV_LOG_ERROR, "avfrm.pfrm=%p,avfrm.dpts=%d!\n", avfrm.pfrm, avfrm.dpts);
+					continue;
+				}
+
+				//delay_ms =(int32_t)(av_frame_get_pkt_duration((avfrm.pfrm) * av_q2d(m_codectb)* 1000);			
+				int32_t delay_ms = (int32_t)(avfrm.pfrm->pkt_duration*av_q2d(m_codectb) * 1000);
+				m_cur_time = avfrm.dpts*1000;//ms
+				if (m_codecpr->codec_type == AVMEDIA_TYPE_VIDEO)
+				{
+					char* yuv420_data = av_yuv420p_clone(avfrm.pfrm);
+					if (nullptr == yuv420_data) continue;
+					int32_t size = avfrm.pfrm->width*avfrm.pfrm->height * 3 / 2;					
+					if (m_vrender_core){
+						//m_vrender_core->onVideoFrame(yuv420_data, size, avfrm.pfrm->width, avfrm.pfrm->height, avfrm.pfrm->format);
+					}else{
+						// 更新纹理
+						SDL_UpdateTexture(m_texture, NULL, yuv420_data, m_codecpr->width);
+						m_rect.x = 0;
+						m_rect.y = 0;
+						m_rect.w = m_codecpr->width;
+						m_rect.h = m_codecpr->height;
+						// 渲染图像.
+						SDL_RenderClear(m_prender);
+						SDL_RenderCopy(m_prender, m_texture, NULL, &m_rect);
+						SDL_RenderPresent(m_prender);
+					}
+				
+					// 释放frame.					
+					av_frame_free(&avfrm.pfrm);
+					av_yuv420p_freep(yuv420_data);		
+				}
+
+				if (m_codecpr->codec_type == AVMEDIA_TYPE_AUDIO)
+				{
+					char* pcm_data = av_pcm_clone(avfrm.pfrm);
+					if (nullptr == pcm_data) continue;
+					int32_t size = (avfrm.pfrm->channels*avfrm.pfrm->nb_samples*
+						av_get_bytes_per_sample((enum AVSampleFormat)avfrm.pfrm->format));
+					if (m_arender_core){
+						//m_arender_core->onAudioFrame(pcm_data, size, avfrm.pfrm->sample_rate, avfrm.pfrm->channels, avfrm.pfrm->nb_samples, avfrm.pfrm->format);
+					}
+					else
+					{
+						SDL_PauseAudioDevice(m_audio_devID, 0);
+						//SDL_Log("SDL_GetAudioStatus()=%d\n", SDL_GetAudioDeviceStatus(m_audio_devID));
+						if (SDL_GetAudioDeviceStatus(m_audio_devID) == SDL_AUDIO_PLAYING)
+						{
+							if (SDL_QueueAudio(m_audio_devID, pcm_data, size))
+							{
+								SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_GetAudioDeviceName: %s!\n", SDL_GetError());
+								av_pcm_freep(pcm_data);
+								continue;
+							}
+							if (size &(size - 1))
+								av_log(nullptr, AV_LOG_ERROR, "audio maybe not smooth pcm_data_size=%d!\n", size);
+						}
+					}
+					
+					// 释放frame.					
+					av_frame_free(&avfrm.pfrm);					
+					av_pcm_freep(pcm_data);					
+				}
+				
+				std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+
+				auto end = std::chrono::high_resolution_clock::now();
+				auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - beg);				
+				std::cout << "@type=" <<m_codecpr->codec_type << " duration="<< delay_ms  <<" loop elaps=" 
+					<< double(duration.count()) << "ms" << " ts="<< m_cur_time << "ms" <<std::endl;
+			}
+			av_log(nullptr, AV_LOG_WARNING, "Mrender finished! ret=%d\n", ret);
+		});
+
+		if (nullptr_id != m_worker.get_id())
+			SET_CMPT_STATUS(E_STARTED);
+	}
+
+	void stopd(bool stop_quik = false)
+	{
+		if (E_STOPPED == cmptStatus() || E_STOPING == cmptStatus())
+			return;
+
+		SET_CMPT_STATUS(E_STOPING);
+		m_stop = true;
+		m_stop_quik = stop_quik;
+		if (m_worker.joinable()) m_worker.join();
+		m_stop = false;
+		m_stop_quik = false;
+		if (nullptr != m_vrender_core)
+			m_vrender_core->stopd();
+		if (nullptr != m_arender_core)
+			m_arender_core->stopd();
+		SET_CMPT_STATUS(E_STOPPED);
+	}
+private:
+		int32_t openAVDevice()
+		{
+			static std::once_flag oc;
+			std::call_once(oc, [&]()
+			{
+				if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER))
+				{
+					printf("Couldn't initialize SDL - %s\n", SDL_GetError());
+					return;
+				}
+			});
+
+			if (m_codecpr->codec_type == AVMEDIA_TYPE_AUDIO)
+			{
+				const char *devname = SDL_GetAudioDeviceName(0, 0);
+				if (NULL == devname)
+				{
+					SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_GetAudioDeviceName: %s!\n", SDL_GetError());
+					return NULL;
+				}
+
+				if (!m_speaker.compare(""))
+					m_speaker = devname;
+
+				SDL_Log("SDL_OpenAudio dev:%s\n", m_speaker.c_str());
+
+				//SDL_AudioSpec want, have;
+				m_desire_spec.freq = m_codecpr->sample_rate;
+				m_desire_spec.format = ffmpeg2SdlFormat(AVMEDIA_TYPE_AUDIO, m_codecpr->format);// AUDIO_F32;// AUDIO_S16SYS;
+				m_desire_spec.channels = m_codecpr->channels;
+				m_desire_spec.silence = 0;
+				m_desire_spec.samples = 1024;//每次回调取数据时必须保证sdl能够取到2^n次方个样本，
+				m_desire_spec.callback = NULL;// fill_audio;
+				m_audio_devID = SDL_OpenAudioDevice(m_speaker.c_str(), 0,
+					&m_desire_spec, &m_device_spec, SDL_AUDIO_ALLOW_ANY_CHANGE);
+				if (m_audio_devID <= 0)
+				{
+					SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't open an audio device for playback: %s!\n", SDL_GetError());
+					return -1;
+				}
+			}
+
+			if (m_codecpr->codec_type == AVMEDIA_TYPE_VIDEO)
+			{
+				m_pixfmts = SDL_PIXELFORMAT_IYUV;//YUV420p
+
+				if (nullptr == m_winhdnw) //创建显示窗口，可以使用外部指定的窗体.
+				{
+					m_pscreen = SDL_CreateWindow("Sun Player",
+						SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+						m_codecpr->width, m_codecpr->height,
+						SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+				}
+				else {
+					m_pscreen = SDL_CreateWindowFrom(m_winhdnw);
+				}
+				//创建渲染器，-1，0不懂什么意思，再看这个函数的定义
+				m_prender = SDL_CreateRenderer(m_pscreen, -1, 0);
+				//创建纹理
+				m_texture = SDL_CreateTexture(m_prender, m_pixfmts,
+					SDL_TEXTUREACCESS_STREAMING, m_codecpr->width, m_codecpr->height);
+			}
+			return 0;
+		}
+private:
+	std::atomic<STATUS>		m_status{ E_INVALID };
+	std::shared_ptr<MpTimer>m_mptimer{ nullptr };
+	std::thread::id 		nullptr_id;
+	std::thread 			m_worker;
+	AVCodecParameters*		m_codecpr{ nullptr };
+	AVRational				m_frmrate{ 0 };
+	AVRational				m_codectb{ 0 };
+	//video
+	SDL_Window*    			m_pscreen{ nullptr };   //窗口句柄
+	SDL_Renderer*   		m_prender{ nullptr };   //渲染句柄
+	SDL_Texture*    		m_texture{ nullptr };   //纹理句柄
+	SDL_Rect       			m_rect;				  //矩形区域
+	void* 					m_winhdnw{ nullptr };
+	//audio
+	SDL_AudioSpec 			m_desire_spec{ 0 };
+	SDL_AudioSpec 			m_device_spec{ 0 };
+	SDL_AudioDeviceID 		m_audio_devID{ 0 };
+	std::string 			m_speaker{ "" };
+	
+	//SDL_Thread*     		refresh_thread = NULL;  //线程数据结构
+	//SDL_Event      			event;              //事件数据结构
+	std::shared_ptr<IVideoMrender> m_vrender_core{ nullptr };
+	std::shared_ptr<IAudioMrender> m_arender_core{ nullptr };
+	uint32_t         		m_pixfmts{ 0 };
+	std::atomic<bool>		m_sdlinit{ false };
+	double					m_cur_time{ -1.0 };
+	//double					m_pkt_duration{ -1.0 };
+	std::atomic<bool>		m_paus{ false };
+	std::atomic<bool>		m_done{ false };
+	std::atomic<bool>		m_stop{ false };
+	std::atomic<bool>		m_stop_quik{ false };
+};
+
+
+#include <list>
+#include <tuple>
+
+class MpTimer
+{
+public:
+	MpTimer() : m_timer_stopd(true), m_try_to_stop(false) {}
+	~MpTimer() { stopd(); }
+
+	void start(millis_t after, std::function<void()> task, bool loop = true)
+	{
+		{// 添加定时任务.
+			std::lock_guard<std::mutex> locker(m_timer_mutex);
+			m_timer_elist.push_back(std::tuple<bool, std::chrono::high_resolution_clock::time_point, millis_t, std::function<void()>>
+				(loop, std::chrono::high_resolution_clock::now() + after, after, task));
+		}
+
+		if (m_timer_stopd == false)
+			return;
+
+		m_timing_time_point = std::chrono::high_resolution_clock::now();
+		m_timer_stopd = false;
+
+		std::thread([this, after, task]()
+		{
+			for (int64_t i = 0; !m_try_to_stop; ++i)
+			{
+				{//执行定时任务，检测剔除.
+					std::lock_guard<std::mutex> locker(m_timer_mutex);
+					if (!m_timer_elist.empty())
+					{
+						for (auto item = m_timer_elist.begin(); item != m_timer_elist.end(); item++)
+							if (std::chrono::high_resolution_clock::now() >= std::get<1>(*item))
+							{
+								task(); std::get<1>(*item) += std::get<2>(*item);
+							}
+						// 						for (auto item = m_timer_elist.begin(); item != m_timer_elist.end();)
+						// 							(!std::get<0>(*item)) ? m_timer_elist.erase(item++) : item++;
+					}
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			//std::cout << "@@@ stop timer..." << std::endl;
+			{
+				std::lock_guard<std::mutex> locker(m_timer_mutex);
+				m_timer_stopd = true;
+				m_timer_condv.notify_one();
+			}
+		}).detach();
+	}
+
+	void stopd()
+	{
+		if (m_timer_stopd || m_try_to_stop)
+			return;
+		m_timing_time_point = std::chrono::high_resolution_clock::time_point(millis_t(0));
+		m_try_to_stop = true;
+		std::cout << "@@@ stop timer..." << std::endl;
+		{
+			std::unique_lock<std::mutex> locker(m_timer_mutex);
+			m_timer_condv.wait(locker, [this] {return m_timer_stopd == true; });
+			if (m_timer_stopd == true) {
+				m_try_to_stop = false;
+			}
+		}
+	}
+
+	void refresh_next_wake_time(micros_t microseconds)
+	{
+		std::lock_guard<std::mutex> locker(m_timer_mutex);
+		auto cur_time_point = std::chrono::high_resolution_clock::now();
+		auto new_time_point = cur_time_point + microseconds;
+		if (new_time_point < m_awaken_time_point
+			|| cur_time_point > m_awaken_time_point)
+			m_awaken_time_point = new_time_point;
+		m_timer_condv.notify_all();
+	}
+
+	template<typename Func, typename... Args>
+	void SyncWait(millis_t after, Func&& func, Args&&... args)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(after));
+		std::forward<Func>(func)(std::forward<Args>(args)...);
+	}
+
+	template<typename Func, typename... Args>
+	void AsynWait(millis_t after, Func&& func, Args&&... args)
+	{
+		std::thread([&]() {
+			std::this_thread::sleep_for(std::chrono::milliseconds(after));
+			std::forward<Func>(func)(std::forward<Args>(args)...);
+		}).detach();
+	}
+
+private:
+	std::atomic<bool>			m_timer_stopd{ 1 };
+	std::atomic<bool>			m_try_to_stop{ 0 };
+	std::mutex					m_timer_mutex;
+	std::condition_variable		m_timer_condv;
+	std::list<std::tuple<bool, std::chrono::high_resolution_clock::time_point, millis_t, std::function<void()>>>	m_timer_elist;
+	std::chrono::high_resolution_clock::time_point			m_timing_time_point;
+	std::chrono::high_resolution_clock::time_point			m_awaken_time_point;
+};
+
+//接口类的实现
+class IMplayerObserver
+{
+public:
+	virtual void onPlay(void) = 0;
+	virtual void onStop(void) = 0;
+	virtual void onPaus(void) = 0;
+	virtual void onLoop(void) = 0;
+	virtual void onSeek(int64_t seekms) = 0;
+	virtual void onTimePoint(int64_t currms)= 0;
+protected:
+	virtual ~IMplayerObserver() = default;
+
+};
+
+class IMplayer
+{
+public:
+	static  std::shared_ptr<IMplayer> create(IMplayerObserver *observe, const char* file, void* winhdwn = nullptr, void* speaker = nullptr);
+	virtual void	play(bool bloopd = false) = 0;
+	virtual void	stop(bool bquick = false) = 0;
+	virtual void	seek(int64_t seek_ms) = 0;
+	virtual void	setloopd(bool bloopd = true) = 0;
+	virtual void	setpause(bool bpause = true) = 0;
+	virtual int64_t duration(void) = 0;
+	virtual STATUS	mpstatus(void) = 0;
+protected:
+	virtual ~IMplayer() = default;
+};
+
+class Mplayer : public IMplayer, public IMplayerObserver
+{
+public:
+	#define check_status(cmpt) do{ if ( !cmpt || E_INVALID == cmpt->cmptStatus()) return;} while(0)
+	Mplayer(IMplayerObserver *observer, std::string file, void* winhdwn = nullptr, void* speaker = nullptr):
+		m_observe(observer),
+		m_cur_file(file),
+		m_cur_hdwn(winhdwn),
+		m_cur_spkr(speaker),
+		m_timer(new MpTimer())
+	{
+		SET_CMPT_STATUS(E_INVALID);
+		// 1.媒体核心初始化.
+		m_demuxer = new Demuxer(m_cur_file.c_str());
+		check_status(m_demuxer);
+		for (int32_t i = 0, type = -1; i < m_demuxer->streamNums(); ++i)
+		{
+			switch ((type = m_demuxer->streamType(i)))
+			{
+			case AVMEDIA_TYPE_VIDEO:
+				m_decoder_video = new Decoder(m_demuxer->streamInfo(type));
+				check_status(m_decoder_video);
+				m_mrender_video = new Mrender(m_decoder_video->decoderCtx(), m_cur_hdwn);
+				check_status(m_mrender_video);
+				break;
+			case AVMEDIA_TYPE_AUDIO:
+				m_decoder_audio = new Decoder(m_demuxer->streamInfo(type));
+				check_status(m_decoder_audio);
+				m_mrender_audio = new Mrender(m_decoder_audio->decoderCtx(), m_cur_spkr);
+				check_status(m_mrender_audio);
+				break;
+			default:
+				av_log(nullptr, AV_LOG_ERROR, "Don't support codec_type=%d\n", type);
+				break;
+			}
+		}
+	
+		m_timer = std::make_shared<MpTimer>();
+		m_mrender_audio->register_timer(m_timer);
+		m_timer->SyncWait(millis_t(1000), test);
+		SET_CMPT_STATUS(E_INITRES);
+	}
+	static void test() {};
+	~Mplayer()
+	{
+		if (E_STOPPED != mpstatus())
+			stop(true);
+		SET_CMPT_STATUS(E_INVALID);
+	}
+	void EchoFunc()
+	{
+		std::cout << "EchoFunc" << std::endl;
+	}
+	void play(bool loopd = false)		override
+	{
+
+		m_loopd = loopd;
+		//m_mrender_video->start();
+		//m_mrender_audio->start();
+		//m_decoder_video->start();
+		//m_decoder_audio->start();
+		m_demuxer->start();
+	}
+
+	void stop(bool quick = false) 		override 
+	{
+		m_status = E_STOPING;
+		m_mrender_video->stopd(quick);
+		m_mrender_audio->stopd(quick);
+		m_decoder_video->stopd(quick);
+		m_decoder_audio->stopd(quick);
+		m_demuxer->stopd(quick);		
+		m_status = E_STOPPED;
+	}
+
+	void seek(int64_t seek_ms)  			override
+	{
+
+	}
+
+	void setpause(bool bpause)				override
+	{
+
+	}
+
+	void setloopd(bool bloopd)				override
+	{
+
+	}
+
+	int64_t duration(void) 					override
+	{
+		return 0;
+	}
+
+	STATUS  mpstatus(void) 					override
+	{
+		return m_status;;
+	}
+
+	//observer...
+
+	void onPlay()							override 
+	{
+		if (m_observe)
+		{
+			m_observe->onPlay();
+		}
+	}
+
+	void onPaus()							override
+	{
+		if (m_observe)
+		{
+			m_observe->onPaus();
+		}
+	}
+
+	void onStop()							override 
+	{
+		if (m_observe)
+		{
+			m_observe->onStop();
+		}
+	}
+
+	void onLoop()			override
+	{
+		if (m_observe)
+		{
+			m_observe->onLoop();
+		}
+	}
+
+	void onSeek(int64_t seek_ms)			override 
+	{
+		if (m_observe)
+		{
+			m_observe->onSeek(seek_ms);
+		}
+	}
+
+	void onTimePoint(int64_t curr_ms)	override
+	{
+		if (m_observe && m_cur_time != curr_ms)
+		{
+			m_observe->onTimePoint(m_cur_time = curr_ms);
+		}
+	}
+private:
+	// 1.components
+	IMplayerObserver		*m_observe{ nullptr };
+	Demuxer 				*m_demuxer{ nullptr };
+	Decoder 				*m_decoder_video{ nullptr };
+	Decoder 				*m_decoder_audio{ nullptr };
+	Mrender 				*m_mrender_video{ nullptr };
+	Mrender 				*m_mrender_audio{ nullptr };
+	// 2.facilities			
+	std::mutex				m_mutex;
+	std::condition_variable m_condv;	
+	std::thread::id 		nullptr_id;
+	std::shared_ptr<MpTimer>m_timer;
+	// 3.parameters
+	std::atomic<STATUS>		m_status{ E_INVALID };
+	std::atomic<bool>		m_stopd{ false };
+	std::atomic<bool>		m_loopd{ false };
+	std::atomic<bool>		m_pause{ false };
+	int64_t				 	m_duration = 0;
+	int64_t 				m_cur_time = 0;
+	std::string	 			m_cur_file{ nullptr };
+	void*					m_cur_spkr{ nullptr };
+	void* 					m_cur_hdwn{ nullptr };
+};
+
+std::shared_ptr<IMplayer>
+IMplayer::create(IMplayerObserver *observe, const char* file, void* winhdwn, void* speaker)
+{
+	return ( nullptr == file || access(file, 0) ) ? nullptr :
+		std::make_shared<Mplayer>(observe, file, winhdwn, speaker);
+}
+
+void EchoFunc(std::string&& s) {
+	std::cout << "test : " << s << std::endl;
+}
+
+int32_t print(std::string&& s, int32_t&& val) {
+	std::cout << "@@@==" << s << " val="<< val << std::endl;
+	return 0;
+}
+int fn(int) { return int(); }                            	// function 
+template<typename T, typename... Arg> void wrapper(T&& arg, Arg&&... args)
+{
+	std::cout << sizeof...(args) << std::endl;	// arg,args 始终是左值
+	print(std::forward<T>(arg), std::forward<Arg>(args)...); // 转发为左值或右值，依赖于 T
+}
+
+int32_t echo(std::string&& s) {
+	std::cout << "@@@==" << s << std::endl;
+	return 0;
+}
+
+template<typename Func, typename... Arg> void call_func(Func&& func, Arg&&... args)
+{
+	// using func_return_t = std::result_of<Func(Arg...)>::type;
+	// std::cout << "func_return_t is int?: " << std::is_same<func_return_t, int32_t>::value << std::endl;
+	// 注意：std::result_of<>::type = 返回值类型,type()是函数指针类型.
+	// 具体type()的精确函数类型，当前是模板函数[==Func(Arg...)]类型，而非实例化的[!=int32_t(std::string&&)]类型。
+#if 0
+	// 完整类型推导
+	using func_t		= std::result_of<Func(Arg...)>::type();
+	std::function<func_t> task(std::bind(std::forward<Func>(func), std::forward<Arg>(args)...));
+	task();
+	// 简化类型表达,但是可能会导致参数列表 右值引用 失败。
+	//auto task = std::bind(std::forward<Func>(func), std::forward<Arg>(args)...);
+ 	//task();
+#else
+	// 极简函数表达
+	std::forward<Func>(func)(std::forward<Arg>(args)...);
+#endif
+}
+
+int main()
+{
+#if 0
+	while (1)
+	{
+		std::shared_ptr<IMplayer> Mp = IMplayer::create(nullptr, "E:\\av-test\\10s.flv");
+		if (Mp && E_INVALID != Mp->mpstatus())
+		{
+
+			Mp->play(true);
+			std::this_thread::sleep_for(std::chrono::seconds(10));
+			Mp.reset();
+		}
+	}
+#else
+	std::shared_ptr<IMplayer> Mp = IMplayer::create(nullptr, "E:\\av-test\\8.mp4");
+	if (Mp && E_INVALID != Mp->mpstatus())
+		Mp->play(true);
+#endif
+	system("pause");
+	return 0;
+}
