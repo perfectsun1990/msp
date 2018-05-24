@@ -76,6 +76,7 @@ public:
 	virtual void	update(const char* device, void* config = nullptr) = 0;
 	virtual STATUS	status(void) = 0;
 	virtual int32_t Q_size(void) = 0;
+	virtual int32_t cached(void) = 0;
 	virtual	void onAudioRFrame(const char* data, int32_t size,
 		int32_t sample_rate, int32_t nb_channels, int32_t nb_samples, int32_t format, double upts = 0) = 0;
 	virtual	void onAudioRFrame(std::shared_ptr<MRframe> avfrm) = 0;
@@ -96,6 +97,7 @@ public:
 	STATUS	status(void)										override;
 	void	update(const char *device,void* config = nullptr)	override;
 	int32_t	Q_size(void)										override;
+	int32_t	cached(void)										override;
 	void onAudioRFrame(const char* data, int32_t size, int32_t sample_rate,
 		int32_t nb_channels, int32_t nb_samples, int32_t format, double upts = 0)override;
 	void onAudioRFrame(std::shared_ptr<MRframe> av_frm)			override;

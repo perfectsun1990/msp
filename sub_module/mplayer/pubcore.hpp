@@ -91,7 +91,7 @@ extern "C"
 #include <corecrt_io.h>
 #endif
 
-/***************************4.公用函数或宏封装***************************/
+/***************************2.公用函数或宏封装***************************/
 
 // 1.位操作宏函数
 #define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
@@ -110,14 +110,63 @@ extern "C"
 // 2.字符数组操作
 #define ELEMENTS(s)              ( sizeof(s)/sizeof(s[0]) )
 #define FREESIZE(s)              ( sizeof(s)- strlen(s)-1 )
-#define MAX_AUDIO_Q_SIZE							  (1)
-#define MAX_VIDEO_Q_SIZE							  (1)
+typedef enum log_rank
+{
+	LOG_ERR,
+	LOG_WAR,
+	LOG_MSG,
+	LOG_DBG,
+}log_rank_t;
+/***************************3.兼容旧的调试机制***************************/
+const static log_rank_t	rank = LOG_DBG;
+#define err( format, ... )do{ if( LOG_ERR <= rank )\
+	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define war( format, ... )do{ if( LOG_WAR <= rank )\
+	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define msg( format, ... )do{ if( LOG_MSG <= rank )\
+	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define dbg( format, ... )do{ if( LOG_DBG <= rank )\
+	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 
-using second_t = std::chrono::duration<int32_t>;
-using millis_t = std::chrono::duration<int32_t, std::milli>;
-using micros_t = std::chrono::duration<int32_t, std::micro>;
-using nannos_t = std::chrono::duration<int32_t, std::nano >;
+namespace AT
+{
+	using second_t = std::chrono::duration<int32_t>;
+	using millis_t = std::chrono::duration<int32_t, std::milli>;
+	using micros_t = std::chrono::duration<int32_t, std::micro>;
+	using nanosd_t = std::chrono::duration<int32_t, std::nano >;
 
+	class Timer
+	{
+	public:
+		Timer() : m_begin(std::chrono::high_resolution_clock::now()) {}
+		void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
+		int64_t elapsed() const{ // default output milliseconds.
+			return elapsed_milliseconds();
+		}
+		int64_t elapsed_nanoseconds()	const{
+			return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now()  - m_begin).count();
+		}
+		int64_t elapsed_microseconds()	const{
+			return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_milliseconds()	const{
+			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_seconds()	const{
+			return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_minutes()	const{
+			return std::chrono::duration_cast<std::chrono::minutes>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_hours()		const{
+			return std::chrono::duration_cast<std::chrono::hours>(std::chrono::high_resolution_clock::now()   - m_begin).count();
+		}
+	private:
+		std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
+	};
+}
+
+/***************************4.具体项目公共资源***************************/
 typedef enum STATUS
 {
 	E_INVALID = -1,
@@ -128,7 +177,6 @@ typedef enum STATUS
 	E_STOPPED,
 	E_DESTROY,
 }STATUS;//Ext...
-
 typedef enum PROPTS
 {
 	P_MINP = -1,
@@ -139,10 +187,14 @@ typedef enum PROPTS
 	//...
 	P_MAXP = sizeof(int64_t)*8,
 }PROPTS;
-#define SET_PROPERTY(x,y)  BSET(x,y)
-#define PUR_PROPERTY(x)	   ( x = 0 )
-#define CLR_PROPERTY(x,y)  BCLR(x,y)
-#define CHK_PROPERTY(x,y)  BCHK(x,y)
+
+#define SET_PROPERTY(x,y)						BSET(x,y)
+#define PUR_PROPERTY(x)							( x = 0 )
+#define CLR_PROPERTY(x,y)						BCLR(x,y)
+#define CHK_PROPERTY(x,y)						BCHK(x,y)
+
+#define MAX_AUDIO_Q_SIZE							  (43*1)
+#define MAX_VIDEO_Q_SIZE							  (25*1)
 
 //Demuxer->...->Enmuxer.
 struct MPacket
@@ -159,9 +211,9 @@ struct MPacket
 	}
 	int32_t				type{ -1 };//audio or video media type.
 	int64_t				prop{  0 };//specif prop, such as seek.
-	double				upts{  0 };//user pts in ms.
-	AVRational			ufps{  0 };//user fps.eg.25.
-	AVRational			sttb{  0 };//stream->tb.
+	AVRational			sttb{  0 };//av_stream->timebase.
+	double				upts{  0 };//user pts in second.<maybe disorder for video>
+	AVRational			ufps{  0 };//user fps.eg.25.	
 	AVCodecParameters*	pars{ nullptr };
 	AVPacket* 			ppkt{ nullptr };
 };
@@ -179,8 +231,8 @@ struct MRframe
 	}
 	int32_t				type{ -1 };//audio or video media type.
 	int64_t				prop{  0 };//specif prop, such as seek.
-	double				upts{  0 };//user pts in ms.
-	AVRational			sttb{  0 };//stream->tb.
+	AVRational			sttb{  0 };//av_codec->timebase.
+	double				upts{  0 };//user pts in second.<must be orderly>
 	AVCodecParameters*	pars{ nullptr };
 	AVFrame* 			pfrm{ nullptr };
 };
@@ -266,13 +318,9 @@ debug_write_pcm(AVFrame *frame)
 		fp = fopen(name, "wb+");
 	if (NULL == fp)
 		return;
-#if 0
-	printf("format=%d, channel=%d,nb_samples=%d,bytes_per_sample=%d,linesize[0]=%d,inesize[1]=%d\n",
-		frame->format, frame->channels, frame->nb_samples, bytes_per_sample, frame->linesize[0], frame->linesize[1]);
-#endif
 
-#if 1
-	int32_t frame_size = frame->channels*frame->nb_samples*bytes_per_sample;
+#if 0
+	int32_t frame_size = av_samples_get_buffer_size(nullptr, frame->channels, frame->nb_samples, (enum AVSampleFormat)frame->format,1);
 	char* pcm_data = av_pcm_clone(frame);
 	fwrite(pcm_data, 1, frame_size, fp);
 	av_pcm_freep(pcm_data);
@@ -340,7 +388,7 @@ debug_write_yuv420p(AVFrame *frame)
 	if (NULL == fp)
 		return;
 
-#if 1//剥离AVFrame中的裸数据。
+#if 0//剥离AVFrame中的裸数据。
 	char* yuv420_data = av_yuv420p_clone(frame);
 	fwrite(yuv420_data, 1, frame->width*frame->height * 3 / 2, fp);
 	av_yuv420p_freep(yuv420_data);
@@ -356,9 +404,3 @@ debug_write_yuv420p(AVFrame *frame)
 	fflush(fp);
 }
 
-/***************************3.兼容旧的调试机制***************************/
-
-#ifndef msg
-#define msg( format, ... )\
-	fprintf( stderr,"[<%s>:%d] " format , __FUNCTION__,__LINE__, ##__VA_ARGS__);
-#endif

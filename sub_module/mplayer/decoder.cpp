@@ -37,16 +37,16 @@ void AudioDecoder::start(void)
 		{
 			if (m_pauseflag)
 			{
-				std::shared_ptr<MRframe> avfrm = std::make_shared<MRframe>();
-				SET_PROPERTY(avfrm->prop, P_PAUS);
+				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
+				SET_PROPERTY(av_frm->prop, P_PAUS);
 				if (!m_observe.expired())
-					m_observe.lock()->onAudioRFrame(avfrm);
+					m_observe.lock()->onAudioRFrame(av_frm);
 				av_usleep(10 * 1000);
 				continue;
 			}
 
 			// 1.receive and dec MPacket.
-			std::shared_ptr<MPacket> avpkt = nullptr;
+			std::shared_ptr<MPacket> av_pkt = nullptr;
 			{
 				std::unique_lock<std::mutex>locker(m_decoder_Q_mutx);
 				m_decoder_Q_cond.wait(locker, [&]() {
@@ -54,29 +54,30 @@ void AudioDecoder::start(void)
 				});
 				if (m_signal_quit || m_decoder_Q.empty())
 					continue;
-				avpkt = m_decoder_Q.front();
+				av_pkt = m_decoder_Q.front();
 				m_decoder_Q.pop();
 			}
 
 			// 2.check and reset decoder.
-			if (!m_codec_ctx || (m_codec_ctx && (m_codec_ctx->pix_fmt != avpkt->pars->format
-				|| m_codec_ctx->width != avpkt->pars->width
-				|| m_codec_ctx->height != avpkt->pars->height)))
+			if (!m_codec_ctx || (m_codec_ctx && (m_codec_ctx->sample_fmt != av_pkt->pars->format
+				|| m_codec_ctx->sample_rate != av_pkt->pars->sample_rate
+				|| m_codec_ctx->channels != av_pkt->pars->channels)))
 			{
-				if ((ret = avcodec_parameters_copy(m_codec_par, avpkt->pars)) < 0) {
+				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
-				m_framerate = avpkt->ufps;
+				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true))
 					break;
+				av_log(nullptr, AV_LOG_WARNING, "Reset audio Codecer!\n");
 			}
 
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
-			av_packet_rescale_ts(avpkt->ppkt, avpkt->sttb, m_codec_ctx->time_base);
+			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);
 
 			// 4. send packet to decoder.
-			if ((ret = avcodec_send_packet(m_codec_ctx, avpkt->ppkt)) < 0)
+			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0)
 			{
 				if (ret != AVERROR_EOF) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_send_packet failed! ret=%d\n", ret);
@@ -89,28 +90,28 @@ void AudioDecoder::start(void)
 			// 5.receive frame from decoder.
 			while (true)
 			{
-				std::shared_ptr<MRframe> avfrm = std::make_shared<MRframe>();
+				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 
-				if ((ret = avcodec_receive_frame(m_codec_ctx, avfrm->pfrm))< 0)
+				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0)
 				{
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
 						av_log(nullptr, AV_LOG_ERROR, "Decoding failed!ret=%d\n", ret);
 					break;
 				}
-				//debug_write_pcm(avfrm->pfrm);
+				
 				// 6.打包发送到渲染器.				
-				avfrm->type = avpkt->type;
-				avfrm->prop = avpkt->prop;
-				avfrm->upts = avpkt->upts;
-				avfrm->sttb = m_codec_ctx->time_base;// avpkt->sttb;
-				if ((ret = avcodec_parameters_copy(avfrm->pars, avpkt->pars)) < 0) {
+				av_frm->type = av_pkt->type;
+				av_frm->prop = av_pkt->prop;
+				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
+				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //这样对于B帧是不对的。av_pkt->upts;
+				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
-				avfrm->pfrm->pts = avfrm->pfrm->best_effort_timestamp;
+				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 
-				if (!m_observe.expired() && avfrm->type == AVMEDIA_TYPE_AUDIO)
-					m_observe.lock()->onAudioRFrame(avfrm);
+				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
+					m_observe.lock()->onAudioRFrame(av_frm);
 			}
 		}
 		SDL_Log("Audio decoder finished! ret=%d\n", ret);
@@ -272,15 +273,15 @@ void VideoDecoder::start(void)
 		{
 			if (m_pauseflag)
 			{
-				std::shared_ptr<MRframe> avfrm = std::make_shared<MRframe>();
-				SET_PROPERTY(avfrm->prop, P_PAUS);
+				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
+				SET_PROPERTY(av_frm->prop, P_PAUS);
 				if (!m_observe.expired())
-					m_observe.lock()->onVideoRFrame(avfrm);
+					m_observe.lock()->onVideoRFrame(av_frm);
 				av_usleep(10 * 1000);
 				continue;
 			}
 			// 1.receive and dec MPacket.
-			std::shared_ptr<MPacket> avpkt = nullptr;
+			std::shared_ptr<MPacket> av_pkt = nullptr;
 			{
 				std::unique_lock<std::mutex>locker(m_decoder_Q_mutx);
 				m_decoder_Q_cond.wait(locker, [&]() {
@@ -288,29 +289,30 @@ void VideoDecoder::start(void)
 				});
 				if (m_signal_quit || m_decoder_Q.empty())
 					continue;
-				avpkt = m_decoder_Q.front();
+				av_pkt = m_decoder_Q.front();
 				m_decoder_Q.pop();
 			}
 			
 			// 2.check and reset decoder.
-			if (  !m_codec_ctx || (m_codec_ctx && (m_codec_ctx->pix_fmt != avpkt->pars->format
-				|| m_codec_ctx->width  != avpkt->pars->width
-				|| m_codec_ctx->height != avpkt->pars->height)))
+			if (  !m_codec_ctx || (m_codec_ctx && (m_codec_ctx->pix_fmt != av_pkt->pars->format
+				|| m_codec_ctx->width  != av_pkt->pars->width
+				|| m_codec_ctx->height != av_pkt->pars->height)))
 			{
-				if ((ret = avcodec_parameters_copy(m_codec_par, avpkt->pars)) < 0) {
+				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
-				m_framerate = avpkt->ufps;
+				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true))
 					break;
+				av_log(nullptr, AV_LOG_WARNING, "Reset video Codecer!\n");
 			}
 
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
-			av_packet_rescale_ts(avpkt->ppkt, avpkt->sttb, m_codec_ctx->time_base);
+			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);
 			
 			// 4. send packet to decoder.
-			if ((ret = avcodec_send_packet(m_codec_ctx, avpkt->ppkt)) < 0)
+			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0)
 			{
 				if (ret != AVERROR_EOF) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_send_packet failed! ret=%d\n", ret);
@@ -323,9 +325,9 @@ void VideoDecoder::start(void)
 			// 5.receiveframe from decoder.
 			while (true) 
 			{
-				std::shared_ptr<MRframe> avfrm = std::make_shared<MRframe>();
+				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				
-				if ((ret = avcodec_receive_frame(m_codec_ctx, avfrm->pfrm))< 0)
+				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0)
 				{
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
 						av_log(nullptr, AV_LOG_ERROR, "Decoding failed!ret=%d\n", ret);
@@ -333,18 +335,18 @@ void VideoDecoder::start(void)
 				}
 				
 				// 6.打包发送到渲染器.				
-				avfrm->type = avpkt->type;
-				avfrm->prop = avpkt->prop;
-				avfrm->upts = avpkt->upts;
-				avfrm->sttb = m_codec_ctx->time_base;// avpkt->sttb;
-				if ((ret = avcodec_parameters_copy(avfrm->pars, avpkt->pars)) < 0) {
+				av_frm->type = av_pkt->type;
+				av_frm->prop = av_pkt->prop;
+				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
+				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //这样对于B帧是不对的。av_pkt->upts;
+				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
-				avfrm->pfrm->pts = avfrm->pfrm->best_effort_timestamp;
+				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 
-				if (!m_observe.expired() && avfrm->type == AVMEDIA_TYPE_VIDEO)
-					m_observe.lock()->onVideoRFrame(avfrm);
+				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
+					m_observe.lock()->onVideoRFrame(av_frm);
 			}
 		}
 		SDL_Log("Video decoder finished! ret=%d\n", ret);

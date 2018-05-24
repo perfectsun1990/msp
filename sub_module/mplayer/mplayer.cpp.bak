@@ -564,7 +564,7 @@ private:
 	{
 		std::lock_guard<std::recursive_mutex> alocker(apkts_Q_mutex);
 		std::lock_guard<std::recursive_mutex> vlocker(vpkts_Q_mutex);
-
+		std::lock<>();//
 		// clear audio queue
 		while (!apkts_Q.empty())
 		{

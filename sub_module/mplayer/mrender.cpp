@@ -421,8 +421,8 @@ void AudioMrender::onAudioRFrame(std::shared_ptr<MRframe> avfrm)
 	{
 		char* data = av_pcm_clone(avfrm->pfrm);
 		if (nullptr == data) return;
-		int32_t size = (avfrm->pfrm->channels*avfrm->pfrm->nb_samples*
-			av_get_bytes_per_sample((enum AVSampleFormat)avfrm->pfrm->format));
+		int32_t size = av_samples_get_buffer_size(nullptr, 
+			avfrm->pfrm->channels, avfrm->pfrm->nb_samples, (enum AVSampleFormat)avfrm->pfrm->format, 1);
 		onAudioRFrame(data, size, avfrm->pfrm->sample_rate, avfrm->pfrm->channels, avfrm->pfrm->nb_samples, avfrm->pfrm->format, avfrm->upts);
 		av_pcm_freep(data);
 	}else{
@@ -441,6 +441,13 @@ int32_t AudioMrender::Q_size(void)
 {
 	std::lock_guard<std::mutex> locker(m_render_Q_mutx);
 	return m_render_Q.size();
+}
+
+int32_t AudioMrender::cached(void)
+{
+	int32_t queue_size = (int32_t)SDL_GetQueuedAudioSize(m_audio_devID);
+	//SDL_Log("SDL_GetQueuedAudioSize=%d\n", queue_size);
+	return queue_size;
 }
 
 void
@@ -525,6 +532,7 @@ AudioMrender::start()
 			// 3.get audio data for playback.			
 			if (SDL_AUDIO_PLAYING == SDL_GetAudioDeviceStatus(m_audio_devID))
 			{
+				//SDL_Log("SDL_GetQueuedAudioSize=%d\n", SDL_GetQueuedAudioSize(m_audio_devID));
 				if (SDL_QueueAudio(m_audio_devID, avfrm.data, avfrm.size))
 				{
 					SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_QueueAudio: %s!\n", SDL_GetError());
