@@ -2,12 +2,12 @@
 #include "pubcore.hpp"
 #include "decoder.hpp"
 
-std::shared_ptr<IAudioDecoder> IAudioDecoder::create(std::shared_ptr<IAudioDecoderObserver> observer)
+std::shared_ptr<IDecoder> IDecoderFactory::createAudioDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
 	return std::make_shared<AudioDecoder>(observer);
 }
 
-AudioDecoder::AudioDecoder(std::shared_ptr<IAudioDecoderObserver> observer)
+AudioDecoder::AudioDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
 	updateStatus(E_INVALID);
 	m_observe = observer;
@@ -39,8 +39,9 @@ void AudioDecoder::start(void)
 			{
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				SET_PROPERTY(av_frm->prop, P_PAUS);
+				av_frm->type = AVMEDIA_TYPE_AUDIO;
 				if (!m_observe.expired())
-					m_observe.lock()->onAudioRFrame(av_frm);
+					m_observe.lock()->onMFrame(av_frm);
 				av_usleep(10 * 1000);
 				continue;
 			}
@@ -109,9 +110,9 @@ void AudioDecoder::start(void)
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
-
+				
 				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
-					m_observe.lock()->onAudioRFrame(av_frm);
+					m_observe.lock()->onMFrame(av_frm);
 			}
 		}
 		SDL_Log("Audio decoder finished! ret=%d\n", ret);
@@ -126,6 +127,7 @@ void AudioDecoder::stopd(bool stop_quik)
 		return;
 	updateStatus(E_STOPING);
 	m_signal_quit = true;
+	m_decoder_Q_cond.notify_all();
 	if (m_worker.joinable()) m_worker.join();
 	updateStatus(E_STOPPED);
 }
@@ -151,7 +153,7 @@ int32_t AudioDecoder::Q_size(void)
 	return m_decoder_Q.size();
 }
 
-void AudioDecoder::onAudioPacket(std::shared_ptr<MPacket> av_pkt)
+void AudioDecoder::onPacket(std::shared_ptr<MPacket> av_pkt)
 {
 	if (!m_signal_quit)
 	{
@@ -238,12 +240,12 @@ void AudioDecoder::clearCodec_Q(bool is_decoder)
 	return;
 }
 
-std::shared_ptr<IVideoDecoder> IVideoDecoder::create(std::shared_ptr<IVideoDecoderObserver> observer)
+std::shared_ptr<IDecoder> IDecoderFactory::createVideoDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
 	return std::make_shared<VideoDecoder>(observer);
 }
 
-VideoDecoder::VideoDecoder(std::shared_ptr<IVideoDecoderObserver> observer)
+VideoDecoder::VideoDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
 	updateStatus(E_INVALID);
 	m_observe = observer;
@@ -275,8 +277,9 @@ void VideoDecoder::start(void)
 			{
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				SET_PROPERTY(av_frm->prop, P_PAUS);
+				av_frm->type = AVMEDIA_TYPE_VIDEO;
 				if (!m_observe.expired())
-					m_observe.lock()->onVideoRFrame(av_frm);
+					m_observe.lock()->onMFrame(av_frm);
 				av_usleep(10 * 1000);
 				continue;
 			}
@@ -344,9 +347,9 @@ void VideoDecoder::start(void)
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
-
+				
 				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
-					m_observe.lock()->onVideoRFrame(av_frm);
+					m_observe.lock()->onMFrame(av_frm);
 			}
 		}
 		SDL_Log("Video decoder finished! ret=%d\n", ret);
@@ -361,6 +364,7 @@ void VideoDecoder::stopd(bool stop_quik)
 		return;
 	updateStatus(E_STOPING);
 	m_signal_quit = true;
+	m_decoder_Q_cond.notify_all();
 	if (m_worker.joinable()) m_worker.join();
 	updateStatus(E_STOPPED);
 }
@@ -386,7 +390,7 @@ int32_t VideoDecoder::Q_size(void)
 	return m_decoder_Q.size();
 }
 
-void VideoDecoder::onVideoPacket(std::shared_ptr<MPacket> av_pkt)
+void VideoDecoder::onPacket(std::shared_ptr<MPacket> av_pkt)
 {
 	if (!m_signal_quit)
 	{

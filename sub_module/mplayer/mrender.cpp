@@ -70,15 +70,15 @@ fmtconvert(int32_t av_type, int32_t ff_fmt)
 #define REFRESH_VIDEO_EVENT     (SDL_USEREVENT + 1)
 #define REFRESH_AUDIO_EVENT     (SDL_USEREVENT + 2)
 
-std::shared_ptr<IVideoMrender>
-IVideoMrender::create(const void* device,
-	std::shared_ptr<IVideoMrenderObserver> observer)
+std::shared_ptr<IMrender>
+IMrenderFactory::createVideoMrender(const void* device,
+	std::shared_ptr<IMrenderObserver> observer)
 {
 	return std::make_shared<VideoMrender>(device, observer);
 }
 
 VideoMrender::VideoMrender(const void* device,
-	std::shared_ptr<IVideoMrenderObserver> observer):
+	std::shared_ptr<IMrenderObserver> observer):
 	m_window(device),
 	m_observe(observer)
 {
@@ -117,7 +117,7 @@ VideoMrender::onVideoRFrame(const char *data, int32_t size,
 	}
 }
 
-void VideoMrender::onVideoRFrame(std::shared_ptr<MRframe> avfrm)
+void VideoMrender::onMFrame(std::shared_ptr<MRframe> avfrm)
 {
 	if (CHK_PROPERTY(avfrm->prop,  P_SEEK))
 		clearVideoRqueue(true);
@@ -135,7 +135,7 @@ void VideoMrender::onVideoRFrame(std::shared_ptr<MRframe> avfrm)
 }
 
 void
-VideoMrender::update(const void *device, void* config)
+VideoMrender::update(const char *device, void* config)
 {
 	m_window = (nullptr != device) ? device : nullptr;
 	m_config = config;//TODO:configure render status.
@@ -177,6 +177,11 @@ int32_t VideoMrender::Q_size(void)
 	return m_render_Q.size();
 }
 
+int32_t VideoMrender::cached(void)
+{
+	return 0;
+}
+
 void
 VideoMrender::start()
 {
@@ -199,7 +204,7 @@ VideoMrender::start()
 				if (m_pauseflag)
 				{
 					if (!m_observe.expired())
-						m_observe.lock()->onVideoTimePoint(m_curpts);
+						m_observe.lock()->onMPoint(AVMEDIA_TYPE_VIDEO, m_curpts);
 					av_usleep(10 * 1000);
 					continue;
 				}
@@ -256,7 +261,7 @@ VideoMrender::start()
 				
 				// 4.callback...
 				if (!m_observe.expired())
-					m_observe.lock()->onVideoTimePoint(m_curpts=avfrm.upts);
+					m_observe.lock()->onMPoint(AVMEDIA_TYPE_VIDEO ,m_curpts=avfrm.upts);
 
 				free(avfrm.data);
 			}
@@ -365,15 +370,14 @@ VideoMrender::resetVideoDevice(bool is_capture)
 	return false;
 }
 
-
-std::shared_ptr<IAudioMrender>
-IAudioMrender::create(const char* device, std::shared_ptr<IAudioMrenderObserver> observer)
+std::shared_ptr<IMrender>
+IMrenderFactory::createAudioMrender(const char* device, std::shared_ptr<IMrenderObserver> observer)
 {
 	return std::make_shared<AudioMrender>(device, observer);
 }
 
 AudioMrender::AudioMrender(const char* device,
-	std::shared_ptr<IAudioMrenderObserver> observer):
+	std::shared_ptr<IMrenderObserver> observer):
 	m_speakr(device),
 	m_observe(observer)
 {
@@ -412,7 +416,7 @@ AudioMrender::onAudioRFrame(const char* data, int32_t size,
 	}
 }
 
-void AudioMrender::onAudioRFrame(std::shared_ptr<MRframe> avfrm)
+void AudioMrender::onMFrame(std::shared_ptr<MRframe> avfrm)
 {
 	if (CHK_PROPERTY(avfrm->prop,  P_SEEK))
 		clearAudioRqueue(true);
@@ -495,7 +499,7 @@ AudioMrender::start()
 			if (m_pauseflag)
 			{
 				if (!m_observe.expired())
-					m_observe.lock()->onAudioTimePoint(m_curpts);
+					m_observe.lock()->onMPoint(AVMEDIA_TYPE_AUDIO, m_curpts);
 				av_usleep(10 * 1000);
 				continue;
 			}
@@ -544,7 +548,7 @@ AudioMrender::start()
 			}
 			// 4.callback...
 			if (!m_observe.expired())
-				m_observe.lock()->onAudioTimePoint(m_curpts = avfrm.upts);
+				m_observe.lock()->onMPoint(AVMEDIA_TYPE_AUDIO, m_curpts = avfrm.upts);
 
 			free(avfrm.data);
 		}

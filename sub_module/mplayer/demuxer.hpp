@@ -1,33 +1,32 @@
 ﻿
 #include "pubcore.hpp"
 
-class IMediaDemuxerObserver
+class IDemuxerObserver
 {// default use ffmpeg.
 public:
-	virtual	void onAudioPacket(std::shared_ptr<MPacket> av_pkt) = 0;
-	virtual void onVideoPacket(std::shared_ptr<MPacket> av_pkt) = 0;
+	virtual void onPacket(std::shared_ptr<MPacket> av_pkt) = 0;
 };
 
-class IMediaDemuxer
+class IDemuxer
 {
 public:
-	static std::shared_ptr<IMediaDemuxer> create(const char* inputf,
-		std::shared_ptr<IMediaDemuxerObserver> observer = nullptr);
+	static std::shared_ptr<IDemuxer> create(const char* inputf,
+		std::shared_ptr<IDemuxerObserver> observer = nullptr);
 	virtual void start(void)									= 0;
 	virtual void stopd(bool stop_quik = false) = 0;
 	virtual void pause(bool pauseflag = false) = 0;
 	virtual void	update(const char *inputf)					= 0;
 	virtual STATUS  status(void)								= 0;
 protected:
-	virtual ~IMediaDemuxer() = default;
+	virtual ~IDemuxer() = default;
 };
 
 // 解复用器
-class MediaDemuxer :public IMediaDemuxer
+class MediaDemuxer :public IDemuxer
 {
 public:
 	MediaDemuxer(const char* inputf, 
-		std::shared_ptr<IMediaDemuxerObserver> observer = nullptr);
+		std::shared_ptr<IDemuxerObserver> observer = nullptr);
 	~MediaDemuxer();
 
 	void start(void)									   override;
@@ -63,5 +62,5 @@ private:
 	std::atomic<bool>		m_seek_apkt{ true };
 	std::atomic<bool>		m_seek_vpkt{ true };
 	std::atomic<bool>		m_pauseflag{ false };
-	std::weak_ptr<IMediaDemuxerObserver> m_observe;
+	std::weak_ptr<IDemuxerObserver> m_observe;
 };

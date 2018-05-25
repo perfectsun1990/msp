@@ -51,10 +51,12 @@ extern "C"
 #include <chrono>
 #include <vector>
 #include <string>
+#include <queue>
+#include <list>
+#include <tuple>
 #include <memory>
 #include <thread>
 #include <mutex>
-#include <queue>
 #include <condition_variable>
 #include <functional>
 #include <cstdio>
@@ -118,7 +120,7 @@ typedef enum log_rank
 	LOG_DBG,
 }log_rank_t;
 /***************************3.兼容旧的调试机制***************************/
-const static log_rank_t	rank = LOG_DBG;
+const static log_rank_t	rank = LOG_MSG;
 #define err( format, ... )do{ if( LOG_ERR <= rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 #define war( format, ... )do{ if( LOG_WAR <= rank )\
@@ -253,7 +255,7 @@ struct AVRenderFrm :
 {
 	int32_t		type{ -1 };
 	int32_t		size{  0 };
-	double		upts{  0 };//pts in ms.
+	double		upts{  0 };//user pts in second.<must be orderly>
 	char*		data{ nullptr };
 };
 

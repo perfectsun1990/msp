@@ -2,13 +2,13 @@
 #include "pubcore.hpp"
 #include "demuxer.hpp"
 
-std::shared_ptr<IMediaDemuxer> IMediaDemuxer::create(const char * inputf, 
-	std::shared_ptr<IMediaDemuxerObserver> observer)
+std::shared_ptr<IDemuxer> IDemuxer::create(const char * inputf, 
+	std::shared_ptr<IDemuxerObserver> observer)
 {
 	return std::make_shared<MediaDemuxer>(inputf, observer);
 }
 
-MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IMediaDemuxerObserver> observer)
+MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IDemuxerObserver> observer)
 {
 	updateStatus(E_INVALID);
 	if (!effective(inputf))
@@ -55,19 +55,25 @@ void MediaDemuxer::start(void)
 		int32_t	ret = -1;
 		while (!m_signal_quit)
 		{
-			std::shared_ptr<MPacket> avpkt = std::make_shared<MPacket>();
-
 			if (m_pauseflag)
 			{
+				//send audio pause pkt callback....
+				std::shared_ptr<MPacket> avpkt = std::make_shared<MPacket>();
 				SET_PROPERTY(avpkt->prop, P_PAUS);
+				avpkt->type = AVMEDIA_TYPE_AUDIO;
 				if (!m_observe.expired())
-					m_observe.lock()->onAudioPacket(avpkt);
+					m_observe.lock()->onPacket(avpkt);
+				//send video pause pkt callback....
+				avpkt = std::make_shared<MPacket>();
+				SET_PROPERTY(avpkt->prop, P_PAUS);
+				avpkt->type = AVMEDIA_TYPE_VIDEO;
 				if (!m_observe.expired())
-					m_observe.lock()->onVideoPacket(avpkt);
+					m_observe.lock()->onPacket(avpkt);
 				av_usleep(10*1000);
 				continue;
 			}
 
+			std::shared_ptr<MPacket> avpkt = std::make_shared<MPacket>();
 			if (!m_fmtctx || (m_fmtctx && m_inputf.compare(m_fmtctx->filename)))
 			{
 				if (!resetMudemer(true))
@@ -110,11 +116,9 @@ void MediaDemuxer::start(void)
 				m_seek_vpkt = true;
 			}
 
-			// 4.callback...
-			if (!m_observe.expired() && avpkt->type == AVMEDIA_TYPE_AUDIO)
-				m_observe.lock()->onAudioPacket(avpkt);
-			if (!m_observe.expired() && avpkt->type == AVMEDIA_TYPE_VIDEO)
-				m_observe.lock()->onVideoPacket(avpkt);
+			// 4.send avpkts to callback...
+			if (!m_observe.expired())
+				m_observe.lock()->onPacket(avpkt);
 		}
 		av_log(nullptr, AV_LOG_WARNING, "Media Demuxer finished! ret=%d\n", ret);
 	});
