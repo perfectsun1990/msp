@@ -2,6 +2,9 @@
 #include "pubcore.hpp"
 #include "mrender.hpp"
 
+static std::mutex window_lock;
+static std::mutex speakr_lock;
+
 static inline int32_t
 fmtconvert(int32_t av_type, int32_t ff_fmt)
 {
@@ -352,7 +355,7 @@ void VideoMrender::updateAttributes()
 		if (m_config->window_fuscreen) SDL_SetWindowFullscreen(m_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
 	}
 }
-static std::mutex window_lock;
+
 bool
 VideoMrender::opendVideoDevice(bool is_mrender)
 {
@@ -782,8 +785,6 @@ AudioMrender::stopd(bool stop_quik)
 	}
 	SET_STATUS(m_status, E_STOPPED);
 }
-
-static std::mutex speakr_lock;
 
 bool 
 AudioMrender::opendAudioDevice(bool is_mrender )
