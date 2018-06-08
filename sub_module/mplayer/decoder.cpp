@@ -7,12 +7,19 @@ std::shared_ptr<IDecoder> IDecoderFactory::createAudioDecoder(std::shared_ptr<ID
 	return std::make_shared<AudioDecoder>(observer);
 }
 
-AudioDecoder::AudioDecoder(std::shared_ptr<IDecoderObserver> observer)
+AudioDecoder::AudioDecoder(std::shared_ptr<IDecoderObserver> observer):
+	m_observer(observer)
 {
-	updateStatus(E_INVALID);
-	m_observe = observer;
+	SET_STATUS(m_status, E_INVALID);
+
+	m_config = std::make_shared<AdecConfig>();
 	m_codec_par = avcodec_parameters_alloc();
-	updateStatus(E_INITRES);
+	
+	m_acache = std::make_shared<MRframe>();
+	m_acache->type = AVMEDIA_TYPE_AUDIO;
+	SET_PROPERTY(m_acache->prop, P_PAUS);
+	
+	SET_STATUS(m_status, E_INITRES);
 }
 
 AudioDecoder::~AudioDecoder()
@@ -20,58 +27,58 @@ AudioDecoder::~AudioDecoder()
 	if (E_STOPPED != status())
 		stopd(true);
 	avcodec_parameters_free(&m_codec_par);
-	updateStatus(E_INVALID);
+	SET_STATUS(m_status, E_INVALID);
 }
 
 void AudioDecoder::start(void)
 {
 	if (E_STARTED == status() || E_STRTING == status())
 		return;
-	updateStatus(E_STRTING);
+	SET_STATUS(m_status, E_STRTING);
 	
 	m_signal_quit = false;
 	m_worker = std::thread([&]()
 	{
-		int32_t ret = 0;
 		while (!m_signal_quit)
 		{
-			if (m_pauseflag)
+			int32_t ret = 0;
+			std::shared_ptr<MPacket> av_pkt = nullptr;
+			// 1.receive and dec MPacket.			
+			if (!m_decoder_Q.try_peek(av_pkt))
 			{
-				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
-				SET_PROPERTY(av_frm->prop, P_PAUS);
-				av_frm->type = AVMEDIA_TYPE_AUDIO;
-				if (!m_observe.expired())
-					m_observe.lock()->onMFrame(av_frm);
-				av_usleep(10 * 1000);
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
 				continue;
 			}
 
-			// 1.receive and dec MPacket.
-			std::shared_ptr<MPacket> av_pkt = nullptr;
-			{
-				std::unique_lock<std::mutex>locker(m_decoder_Q_mutx);
-				m_decoder_Q_cond.wait(locker, [&]() {
-					return (!m_decoder_Q.empty() || m_signal_quit);
-				});
-				if (m_signal_quit || m_decoder_Q.empty())
-					continue;
-				av_pkt = m_decoder_Q.front();
-				m_decoder_Q.pop();
-			}
-
 			// 2.check and reset decoder.
-			if (!m_codec_ctx || (m_codec_ctx && (m_codec_ctx->sample_fmt != av_pkt->pars->format
-				|| m_codec_ctx->sample_rate != av_pkt->pars->sample_rate
-				|| m_codec_ctx->channels != av_pkt->pars->channels)))
+			if (  !m_codec_par
+				|| m_codec_par->format		!= av_pkt->pars->format
+				|| m_codec_par->sample_rate != av_pkt->pars->sample_rate
+				|| m_codec_par->channels	!= av_pkt->pars->channels )
 			{
-				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
+				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) 
+				{
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
+				m_signal_rset = true;
+			}
+
+			if (m_signal_rset)
+			{
 				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true))
 					break;
+				m_signal_rset = false;
 				av_log(nullptr, AV_LOG_WARNING, "Reset audio Codecer!\n");
+			}
+			
+			if ( m_config->pauseflag)
+			{
+				if (!m_observer.expired())
+					m_observer.lock()->onMFrame(m_acache);
+				av_usleep(10 * 1000);
+				continue;
 			}
 
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
@@ -87,7 +94,7 @@ void AudioDecoder::start(void)
 				av_usleep(10 * 1000);
 				continue;
 			}
-
+			
 			// 5.receive frame from decoder.
 			while (true)
 			{
@@ -110,36 +117,47 @@ void AudioDecoder::start(void)
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
-				
-				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
-					m_observe.lock()->onMFrame(av_frm);
+				m_acache->upts = av_frm->upts;
+				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
+					m_observer.lock()->onMFrame(av_frm);
 			}
+			m_decoder_Q.popd(av_pkt);
 		}
-		SDL_Log("Audio decoder finished! ret=%d\n", ret);
+		av_log(nullptr, AV_LOG_WARNING, "Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 
-	updateStatus(E_STARTED);
+	SET_STATUS(m_status, E_STARTED);
 }
 
 void AudioDecoder::stopd(bool stop_quik)
 {
 	if (E_STOPPED == status() || E_STOPING == status())
 		return;
-	updateStatus(E_STOPING);
+	SET_STATUS(m_status, E_STOPING);
 	m_signal_quit = true;
-	m_decoder_Q_cond.notify_all();
 	if (m_worker.joinable()) m_worker.join();
-	updateStatus(E_STOPPED);
+	closeCodecer(true);
+	clearCodec_Q(true);
+	SET_STATUS(m_status, E_STOPPED);
 }
 
 void AudioDecoder::pause(bool pauseflag)
 {
-	m_pauseflag = pauseflag;
+	VdecConfig cfg;
+	config(static_cast<void*>(&cfg));
+	cfg.pauseflag = pauseflag;
+	update(static_cast<void*>(&cfg));
 }
 
 void AudioDecoder::update(void * config)
 {
-	m_config = config;
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	AdecConfig* p_cfg = (AdecConfig*)config;
+	if (nullptr != config)
+	{
+		*m_config = *p_cfg;
+		updateAttributes();
+	}
 }
 
 STATUS AudioDecoder::status(void)
@@ -147,36 +165,35 @@ STATUS AudioDecoder::status(void)
 	return m_status;
 }
 
+void AudioDecoder::config(void * config)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	if (nullptr != config)
+		*((AdecConfig*)config) = *m_config;
+}
+
 int32_t AudioDecoder::Q_size(void)
 {
-	std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);
 	return m_decoder_Q.size();
 }
 
-void AudioDecoder::onPacket(std::shared_ptr<MPacket> av_pkt)
+void AudioDecoder::onMPkt(std::shared_ptr<MPacket> av_pkt)
 {
 	if (!m_signal_quit)
 	{
-		if (CHK_PROPERTY(av_pkt->prop,  P_SEEK))
-			clearCodec_Q(true);
-		std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);		
-		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS)) 
+		if (CHK_PROPERTY(av_pkt->prop, P_SEEK))
+			m_decoder_Q.clear();
+		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
 			m_decoder_Q.push(av_pkt);
-		m_decoder_Q_cond.notify_all();
 	}
 }
 
-void AudioDecoder::updateStatus(STATUS status)
-{
-	m_status = status;
-}
 
 void AudioDecoder::closeCodecer(bool is_decoder)
 {
 	if (is_decoder)
-	{
 		avcodec_free_context(&m_codec_ctx);
-	}
+	m_signal_rset = true;
 }
 
 bool AudioDecoder::opendCodecer(bool is_decoder)
@@ -229,86 +246,91 @@ bool AudioDecoder::resetCodecer(bool is_decoder)
 	return false;
 }
 
+void AudioDecoder::updateAttributes(void)
+{
+}
+
 void AudioDecoder::clearCodec_Q(bool is_decoder)
 {
 	if (is_decoder)
 	{
-		std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);
-		while (!m_decoder_Q.empty())
-			m_decoder_Q.pop();
+		m_decoder_Q.clear();
 	}
-	return;
 }
 
-std::shared_ptr<IDecoder> IDecoderFactory::createVideoDecoder(std::shared_ptr<IDecoderObserver> observer)
+std::shared_ptr<IDecoder> IDecoderFactory::createVideoDecoder(
+	std::shared_ptr<IDecoderObserver> observer)
 {
 	return std::make_shared<VideoDecoder>(observer);
 }
 
 VideoDecoder::VideoDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
-	updateStatus(E_INVALID);
-	m_observe = observer;
+	SET_STATUS(m_status, E_INVALID);
+
+	m_config = std::make_shared<VdecConfig>();
+	m_observer  = observer;
 	m_codec_par = avcodec_parameters_alloc();
-	updateStatus(E_INITRES);
+	m_vcache = std::make_shared<MRframe>();
+	m_vcache->type = AVMEDIA_TYPE_VIDEO;
+	SET_PROPERTY(m_vcache->prop, P_PAUS);
+
+	SET_STATUS(m_status, E_INITRES);
 }
 
 VideoDecoder::~VideoDecoder()
 {
-	if (E_STOPPED != status())
-		stopd(true);
+	stopd(true);
 	avcodec_parameters_free(&m_codec_par);
-	updateStatus(E_INVALID);
 }
 
 void VideoDecoder::start(void)
 {
-	if (E_STARTED == status() || E_STRTING == status())
-		return;
-	updateStatus(E_STRTING);
+	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
+	SET_STATUS(m_status, E_STRTING);
 
 	m_signal_quit = false;
 	m_worker = std::thread([&]()
 	{
-		int32_t ret = 0;
 		while (!m_signal_quit)
 		{
-			if (m_pauseflag)
-			{
-				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
-				SET_PROPERTY(av_frm->prop, P_PAUS);
-				av_frm->type = AVMEDIA_TYPE_VIDEO;
-				if (!m_observe.expired())
-					m_observe.lock()->onMFrame(av_frm);
-				av_usleep(10 * 1000);
-				continue;
-			}
-			// 1.receive and dec MPacket.
+			int32_t ret = 0;
 			std::shared_ptr<MPacket> av_pkt = nullptr;
+			// 1.receive and dec MPacket.			
+			if (!m_decoder_Q.try_peek(av_pkt))
 			{
-				std::unique_lock<std::mutex>locker(m_decoder_Q_mutx);
-				m_decoder_Q_cond.wait(locker, [&]() {
-					return (!m_decoder_Q.empty() || m_signal_quit);
-				});
-				if (m_signal_quit || m_decoder_Q.empty())
-					continue;
-				av_pkt = m_decoder_Q.front();
-				m_decoder_Q.pop();
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				continue;
 			}
 			
 			// 2.check and reset decoder.
-			if (  !m_codec_ctx || (m_codec_ctx && (m_codec_ctx->pix_fmt != av_pkt->pars->format
-				|| m_codec_ctx->width  != av_pkt->pars->width
-				|| m_codec_ctx->height != av_pkt->pars->height)))
+			if (  !m_codec_par
+				|| m_codec_par->format != av_pkt->pars->format
+				|| m_codec_par->width  != av_pkt->pars->width
+				|| m_codec_par->height != av_pkt->pars->height)
 			{
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
 					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
+				m_signal_rset = true;
+			}
+
+			if(m_signal_rset)
+			{
 				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true))
 					break;
+				m_signal_rset = false;
 				av_log(nullptr, AV_LOG_WARNING, "Reset video Codecer!\n");
+			}
+
+			if (m_config->pauseflag)
+			{
+				if (!m_observer.expired())
+					m_observer.lock()->onMFrame(m_vcache);
+				av_usleep(10 * 1000);
+				continue;
 			}
 
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
@@ -325,7 +347,7 @@ void VideoDecoder::start(void)
 				continue;
 			}
 
-			// 5.receiveframe from decoder.
+			// 5.recv frame from decoder.
 			while (true) 
 			{
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
@@ -347,76 +369,109 @@ void VideoDecoder::start(void)
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
-				
-				if (!m_observe.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
-					m_observe.lock()->onMFrame(av_frm);
+				m_vcache->upts = av_frm->upts;
+				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
+					m_observer.lock()->onMFrame(av_frm);
 			}
+			m_decoder_Q.popd(av_pkt);
 		}
-		SDL_Log("Video decoder finished! ret=%d\n", ret);
+		av_log(nullptr, AV_LOG_WARNING, "Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 
-	updateStatus(E_STARTED);
+	SET_STATUS(m_status, E_STARTED);
 }
 
-void VideoDecoder::stopd(bool stop_quik)
+void 
+VideoDecoder::stopd(bool stop_quik)
 {
-	if (E_STOPPED == status() || E_STOPING == status())
-		return;
-	updateStatus(E_STOPING);
+	CHK_RETURN(E_STARTED != status());
+	SET_STATUS(m_status, E_STOPING);
+
 	m_signal_quit = true;
-	m_decoder_Q_cond.notify_all();
 	if (m_worker.joinable()) m_worker.join();
-	updateStatus(E_STOPPED);
+	closeCodecer(true);
+	clearCodec_Q(true);
+
+	SET_STATUS(m_status, E_STOPPED);
 }
 
-void VideoDecoder::pause(bool pauseflag)
+void 
+VideoDecoder::pause(bool pauseflag)
 {
-	m_pauseflag = pauseflag;
+	VdecConfig cfg;
+	config(static_cast<void*>(&cfg));
+	cfg.pauseflag = pauseflag;
+	update(static_cast<void*>(&cfg));
 }
 
-void VideoDecoder::update(void * config)
+void 
+VideoDecoder::config(void * config)
 {
-	m_config = config;
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	if (nullptr != config)
+		*((VdecConfig*)config) = *m_config;
 }
 
-STATUS VideoDecoder::status(void)
+void
+VideoDecoder::update(void * config)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	VdecConfig* p_cfg = (VdecConfig*)config;
+	if (nullptr != config)
+	{
+		*m_config = *p_cfg;
+		updateAttributes();
+	}
+}
+
+STATUS 
+VideoDecoder::status(void)
 {
 	return m_status;
 }
 
-int32_t VideoDecoder::Q_size(void)
+int32_t 
+VideoDecoder::Q_size(void)
 {
-	std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);
 	return m_decoder_Q.size();
 }
 
-void VideoDecoder::onPacket(std::shared_ptr<MPacket> av_pkt)
+void 
+VideoDecoder::onMPkt(std::shared_ptr<MPacket> av_pkt)
 {
 	if (!m_signal_quit)
 	{
 		if (CHK_PROPERTY(av_pkt->prop,  P_SEEK))
-			clearCodec_Q(true);
-		std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);
+			m_decoder_Q.clear();
 		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
 			m_decoder_Q.push(av_pkt);
-		m_decoder_Q_cond.notify_all();
 	}
 }
 
-void VideoDecoder::updateStatus(STATUS status)
+void
+VideoDecoder::updateAttributes(void)
 {
-	m_status = status;
 }
 
-void VideoDecoder::closeCodecer(bool is_decoder)
+void
+VideoDecoder::clearCodec_Q(bool is_decoder)
 {
 	if (is_decoder)
 	{
-		avcodec_free_context(&m_codec_ctx);
+		m_decoder_Q.clear();
 	}
 }
 
-bool VideoDecoder::opendCodecer(bool is_decoder)
+void 
+VideoDecoder::closeCodecer(bool is_decoder)
+{
+	if (is_decoder)
+		avcodec_free_context(&m_codec_ctx);
+	m_signal_rset = true;
+}
+
+bool 
+VideoDecoder::opendCodecer(bool is_decoder)
 {
 	if (is_decoder)
 	{
@@ -455,7 +510,8 @@ bool VideoDecoder::opendCodecer(bool is_decoder)
 	return true;
 }
 
-bool VideoDecoder::resetCodecer(bool is_decoder)
+bool 
+VideoDecoder::resetCodecer(bool is_decoder)
 {
 	if (is_decoder)
 	{
@@ -465,13 +521,3 @@ bool VideoDecoder::resetCodecer(bool is_decoder)
 	return false;
 }
 
-void VideoDecoder::clearCodec_Q(bool is_decoder)
-{
-	if (is_decoder)
-	{
-		std::lock_guard<std::mutex> locker(m_decoder_Q_mutx);
-		while (!m_decoder_Q.empty())
-			m_decoder_Q.pop();
-	}
-	return;
-}

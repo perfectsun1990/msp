@@ -18,6 +18,28 @@ INCLUDE_DIRECTORIES(${SDL2_INCLUDE_DIR})
 # 针对libVLC通用配置,定位包.
 #FIND_PACKAGE(LIBVLC  REQUIRED)
 #INCLUDE_DIRECTORIES(${LIBVLC_INCLUDE_DIR})
+# 针对Qt5工程通用配置,定位包.
+# Find include files in the source and build directories.
+SET(CMAKE_INCLUDE_CURRENT_DIR 	ON)
+# Turn on automatic invocation of the moc files.
+SET(CMAKE_AUTOMOC 				ON)
+# Find the packages(libraries/headers dirs) of Qt5.
+FIND_PACKAGE(Qt5 ${FIND_MODE}
+	COMPONENTS Widgets Core Gui Network Xml OpenGL 
+	LinguistTools WebChannel WebEngineWidgets )
+#FIND_PACKAGE(Qt5Widgets 			${FIND_MODE})
+IF(WIN32)
+FIND_PACKAGE(Qt5AxContainer 		${FIND_MODE})
+FIND_PACKAGE(Qt5AxBase 				${FIND_MODE})
+ENDIF()
+IF(		NOT Qt5Widgets_DIR
+	OR 	NOT Qt5LinguistTools_FOUND )
+	IF (ENABLE_UI)
+		MESSAGE(FATAL_ERROR "Failed to find Qt5![please cheCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}]")
+	ELSE()
+		MESSAGE(STATUS "Qt5 not found - UI disabled")
+	ENDIF()
+ENDIF()
 
 IF(WIN32)
 ADD_DEFINITIONS(-DDLL_EXPORT -DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS)
@@ -49,7 +71,9 @@ ELSE()
 	ADD_LIBRARY(${PROJECT_NAME}  MODULE ${ALL_SOURCES_AND_HEADERS})
 	#ADD_LIBRARY(${PROJECT_NAME}  STATIC ${ALL_SOURCES_AND_HEADERS})
 ENDIF()
-
+TARGET_LINK_LIBRARIES(${PROJECT_NAME} 
+	Qt5::Widgets 
+	Qt5::WinMain)
 TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${FFmpeg_LIBRARY} ${SDL2_LIBRARY})
 	
 IF(${CMAKE_BUILD_TYPE} MATCHES "Debug")

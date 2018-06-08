@@ -38,33 +38,39 @@ class Mplayer :
 public:
 	Mplayer(const char* url, const char* speakr = "", const void* window = nullptr);
 	~Mplayer();
+	/* configs functions. */
+	STATUS	status(void);					 
+	void	config(void* config);					 
+	void	update(void* config);					 
+	int64_t durats(void);//ms
+	/* control functions. */
+	bool mInit(void);
+	void start(void);
+	void stopd(void);
+	void pause(bool pauseflag);
+	void seekp(int64_t seektp);
+private:
 	// Demuxer->Decoder
 	void onPacket(std::shared_ptr<MPacket> av_pkt)	override;
 	// Decoder->Mrender
 	void onMFrame(std::shared_ptr<MRframe> av_frm)	override;
 	// Mrender->Maneger.
 	void onMPoint(int32_t type, double upts)		override;
-	// Mplayer start & stop.
-	void start();
-	void stopd();
-private:
 	double decodeClock();
 	double getSyncAdjustedPtsDiff(double pts, double pts_diff);
 private:
-	std::atomic<bool>				m_sig_quit{ false };
-	std::atomic<bool>				m_init_flag{ false };
-	const char*						m_inputf{ nullptr };
-	const char*						m_speakr{ nullptr };
+	std::atomic<bool>				m_signal_quit{ false };
+	std::atomic<bool>				m_signal_init{ false };
+	std::atomic<bool>				m_signal_rest{ false };
+
+	std::string						m_inputf{ "" };
+	std::string						m_speakr{ "" };
 	const void*						m_window{ nullptr };
-	std::shared_ptr<IDemuxer> 		m_mdemuxer{ nullptr };
-	std::shared_ptr<IDecoder> 		m_adecoder{ nullptr };
-	std::shared_ptr<IDecoder> 		m_vdecoder{ nullptr };
-	std::shared_ptr<IMrender> 		m_amrender{ nullptr };
-	std::shared_ptr<IMrender> 		m_vmrender{ nullptr };
-	std::queue<std::shared_ptr<MRframe>> m_vrender_Q;
+#if 1
+	AT::safe_queue<std::shared_ptr<MRframe>> m_vrender_Q;
 	std::mutex						m_vrender_Q_mutx;
 	std::condition_variable			m_vrender_Q_cond;
-	std::queue<std::shared_ptr<MRframe>> m_arender_Q;
+	AT::safe_queue<std::shared_ptr<MRframe>> m_arender_Q;
 	std::mutex						m_arender_Q_mutx;
 	std::condition_variable			m_arender_Q_cond;
 	std::thread						m_vrefesh_worker;
@@ -87,5 +93,12 @@ private:
 	double m_predicted_pts = 0.0;
 	bool m_first_frame = true;
 	double m_next_wake = 0.0;
+#endif
+	//
+	std::shared_ptr<IDemuxer> 		m_mdemuxer{ nullptr };
+	std::shared_ptr<IDecoder> 		m_adecoder{ nullptr };
+	std::shared_ptr<IDecoder> 		m_vdecoder{ nullptr };
+	std::shared_ptr<IMrender> 		m_amrender{ nullptr };
+	std::shared_ptr<IMrender> 		m_vmrender{ nullptr };
 
 };
