@@ -17,6 +17,7 @@ typedef struct AVCodecPars
 	int32_t		pix_high{ 0 };
 	std::map <int32_t, std::string> drivers;
 	std::map <int32_t, std::string> devices;
+	std::map <int32_t, std::string> rdrdrvs;
 }AVCodecPars;
 
 typedef struct ArdrConfig

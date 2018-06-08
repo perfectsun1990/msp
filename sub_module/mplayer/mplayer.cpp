@@ -391,7 +391,7 @@ int32_t main(int32_t argc, char *argv[])
 	{
 #if 1// 2 window test
 		std::shared_ptr<Mplayer> mp1 = 
-			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr1, (void*)window1.winId());
+			std::make_shared<Mplayer>("E:\\av-test\\海绵宝宝.mp3", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr2, (void*)window2.winId());
 // 		std::shared_ptr<Mplayer> mp2 =
@@ -404,11 +404,10 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 		mp1->start();
 		mp2->start();
-		std::this_thread::sleep_for(std::chrono::seconds(5));
+		std::this_thread::sleep_for(std::chrono::seconds(300));
 #if 1// 3 reopen test
 		mp1->stopd();
 		mp2->stopd();
-
 		for (int i=0;i <1;++i)
 		{
 			mp1->start();
@@ -418,9 +417,10 @@ int32_t main(int32_t argc, char *argv[])
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 			mp2->stopd();
 		}
-#endif
 		mp1->start();
 		mp2->start();
+#endif
+
 		std::this_thread::sleep_for(std::chrono::seconds(1000));
 	}).detach();
 
