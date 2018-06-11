@@ -76,7 +76,7 @@ void AudioDecoder::start(void)
 			if ( m_config->pauseflag)
 			{
 				if (!m_observer.expired())
-					m_observer.lock()->onMFrame(m_acache);
+					m_observer.lock()->onMFrm(m_acache);
 				av_usleep(10 * 1000);
 				continue;
 			}
@@ -119,7 +119,7 @@ void AudioDecoder::start(void)
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				m_acache->upts = av_frm->upts;
 				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
-					m_observer.lock()->onMFrame(av_frm);
+					m_observer.lock()->onMFrm(av_frm);
 			}
 			m_decoder_Q.popd(av_pkt);
 		}
@@ -328,7 +328,7 @@ void VideoDecoder::start(void)
 			if (m_config->pauseflag)
 			{
 				if (!m_observer.expired())
-					m_observer.lock()->onMFrame(m_vcache);
+					m_observer.lock()->onMFrm(m_vcache);
 				av_usleep(10 * 1000);
 				continue;
 			}
@@ -371,7 +371,7 @@ void VideoDecoder::start(void)
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				m_vcache->upts = av_frm->upts;
 				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
-					m_observer.lock()->onMFrame(av_frm);
+					m_observer.lock()->onMFrm(av_frm);
 			}
 			m_decoder_Q.popd(av_pkt);
 		}

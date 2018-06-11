@@ -2,8 +2,8 @@
 #include "pubcore.hpp"
 #include "mrender.hpp"
 
-static std::mutex window_lock;
-static std::mutex speakr_lock;
+static std::mutex			   window_lock;
+static std::mutex			   speakr_lock;
 
 static inline int32_t
 fmtconvert(int32_t av_type, int32_t ff_fmt)
@@ -78,7 +78,7 @@ OnceTaskInit()
 		if (masks != SDL_WasInit(masks))
 		{// Note: init & quit once duraing a process.
 			if (SDL_Init(SDL_INIT_EVERYTHING))
-				err("Couldn't initialize SDL - %s!\n", SDL_GetError());
+				err("Couldn't initialize SDL subsystem - %s!\n", SDL_GetError());
 			if (std::atexit([](void)
 			{
 				SDL_AudioQuit();
@@ -114,54 +114,18 @@ VideoMrender::~VideoMrender()
 	av_yuv420p_freep(std::get<0>(m_buffer));
 }
 
-AVFrame*
-rescale(AVFrame*  avframe, int32_t dst_w, int32_t dst_h, int32_t dst_f)
-{
-	if (nullptr == avframe)
-		return nullptr;
-
-	SwsContext *sws_ctx = nullptr;
-	AVFrame* dst_frame  = nullptr;
-	AVFrame* src_frame  = avframe;
-
-	if (	src_frame->width  != dst_w ||src_frame->height != dst_h
-		||	src_frame->format != dst_f)
-	{
-		//  1.获取转换句柄.
-		if (nullptr != sws_ctx) {
-			sws_freeContext(sws_ctx);
-			sws_ctx = nullptr;
-		}
-		if (nullptr == (sws_ctx = sws_getCachedContext(sws_ctx,
-			src_frame->width, src_frame->height, (AVPixelFormat)src_frame->format,
-			dst_w, dst_h, (AVPixelFormat)dst_f,
-			SWS_FAST_BILINEAR, NULL, NULL, NULL)))
-			return nullptr;
-		//  2.申请缓存数据.
-		if (nullptr == (dst_frame = av_v_frame_alloc((AVPixelFormat)dst_f, dst_w, dst_h)))
-			return nullptr;
-		//  3.进行图像转换.
-		sws_scale(sws_ctx, (const uint8_t* const*)src_frame->data, src_frame->linesize, 0, dst_frame->height, dst_frame->data, dst_frame->linesize);	
-	}else {
-		dst_frame = src_frame;
-	}
-	return dst_frame;
-
-}
-
 void 
 VideoMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only rescale for unsupported foramts,convert to I420.
-		AVFrame* pfrm = rescale(av_frm->pfrm,
+		AVFrame* pfrm = rescale(&m_swsctx, av_frm->pfrm,
 			av_frm->pfrm->width,av_frm->pfrm->height, AV_PIX_FMT_YUV420P);
 		if (pfrm == nullptr) {
 			err("video: pfrm=%p rescale failed...\n", pfrm);
 			return;
 		}
-		if (pfrm != av_frm->pfrm)
-		{// update av_frm parameters...
+		if (pfrm != av_frm->pfrm){// update the av_frm parameters...
 			av_frame_free(&av_frm->pfrm);
 			av_frm->pfrm		 = pfrm;
 			av_frm->pars->width  = pfrm->width;
@@ -308,7 +272,7 @@ VideoMrender::start()
 
 				// 4.callback...
 				if (!m_observer.expired())
-					m_observer.lock()->onMPoint(AVMEDIA_TYPE_VIDEO, m_curpts);
+					m_observer.lock()->onMPts(AVMEDIA_TYPE_VIDEO, m_curpts);
 			}
 			av_log(nullptr, AV_LOG_WARNING, "Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
 		});
@@ -375,6 +339,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			return false;
 		}else {
 			out("Built-in video drivers[%d]:\n", effort_driver_nums);
+			effort_driver_name = (char*)SDL_GetVideoDriver(0);
 			for (int32_t i = 0; i < effort_driver_nums; ++i)
 			{
 				const char* driver = SDL_GetVideoDriver(i);
@@ -485,7 +450,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			err( "Couldn't create texture for video!:%s!\n", SDL_GetError());
 			return false;
 		}
-		out("@@@ Open Video device success! display=%s window_id= 0x%x (0-default)\n", 
+		SDL_Log("@@@ Open Video device success! display=%s window_id= 0x%x (0-default)\n",
 			m_config->window_disp.c_str(),(long)m_window);
 	}
 
@@ -519,7 +484,6 @@ VideoMrender::closeVideoDevice(bool is_mrender)
 		}
 		m_signal_rset = true;
 	}
-	atexit(SDL_VideoQuit);//Ensure safe for multiple instances.
 }
 
 bool
@@ -590,63 +554,18 @@ AudioMrender::pause(bool pauseflag)
 }
 
 
-AVFrame*
-resmple(AVFrame*  avframe, int32_t dst_s, int32_t dst_n, uint64_t dst_l, int32_t dst_f )
-{
-	assert(nullptr != avframe);
-
-	int32_t dst_nb_samples  = -1;
-	SwrContext *swr_ctx = nullptr;
-	AVFrame* dst_frame  = nullptr;
-	AVFrame* src_frame  = avframe;
-	
-	if (src_frame->sample_rate	 != dst_s || src_frame->nb_samples != dst_n || 
-		src_frame->channel_layout!= dst_l || src_frame->format	   != dst_f)
-	{
-		//  1.获取转换句柄.
-		if (nullptr != swr_ctx) 
-			swr_free(&swr_ctx);
-		if (nullptr == (swr_ctx = swr_alloc_set_opts(swr_ctx, dst_l, (AVSampleFormat)dst_f, dst_s,
-			src_frame->channel_layout, (AVSampleFormat)src_frame->format, src_frame->sample_rate,
-			0, 0)))
-			return nullptr;
-		if (swr_init(swr_ctx) < 0){
-			swr_free(&swr_ctx);
-			return nullptr;
-		}
-		//  2.申请缓存数据.
-		if (nullptr == (dst_frame = av_a_frame_alloc((AVSampleFormat)dst_f, dst_l, dst_s, dst_n))){
-			swr_free(&swr_ctx);
-			return nullptr;
-		}
-		//  3.进行音频转换.
-		if((dst_nb_samples = swr_convert(swr_ctx, dst_frame->data, dst_frame->nb_samples,
-			(const uint8_t**)src_frame->data, src_frame->nb_samples)) <= 0)
-		{
-			swr_free(&swr_ctx);
-			return nullptr;
-		}
-		if (dst_nb_samples  != dst_frame->nb_samples)
-			war("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
-	}else {
-		dst_frame = src_frame;
-	}
-	return dst_frame;
-}
-
 void
 AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
-	{// Note: Only resmple for unsupported foramts,convert to s16.
-		AVFrame* pfrm = resmple(av_frm->pfrm, av_frm->pfrm->sample_rate,
+	{// Note: Only resmple for unsupported foramts,convert to fltp.
+		AVFrame* pfrm = resmple(&m_swrctx, av_frm->pfrm, av_frm->pfrm->sample_rate,
 			av_frm->pfrm->nb_samples, av_frm->pfrm->channel_layout, AV_SAMPLE_FMT_FLTP);
 		if (pfrm == nullptr) {
-			err("video: pfrm=%p rescale failed...\n", pfrm);
+			err("Audio: pfrm=%p resmple failed...\n", pfrm);
 			return;
 		}
-		if (pfrm != av_frm->pfrm)
-		{// update av_frm parameters...
+		if (pfrm != av_frm->pfrm){// update av_frm parameters...
 			av_frame_free(&av_frm->pfrm);
 			av_frm->pfrm				 = pfrm;
 			av_frm->pars->sample_rate    = pfrm->sample_rate;
@@ -762,7 +681,7 @@ AudioMrender::start()
 
 				// 4.callback...
 				if (!m_observer.expired())
-					m_observer.lock()->onMPoint(AVMEDIA_TYPE_AUDIO, m_curpts);
+					m_observer.lock()->onMPts(AVMEDIA_TYPE_AUDIO, m_curpts);
 
 			}
 			av_log(nullptr, AV_LOG_WARNING, "Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
@@ -804,25 +723,26 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 			return false;
 		}else {
 			out("Built-in audio drivers[%d]:\n", effort_driver_nums);
+			effort_driver_name = (char*)SDL_GetAudioDriver(0);
 			for (int32_t i = 0; i < effort_driver_nums; ++i)
 			{//default driver:SDL_GetAudioDriver(0)
 				const char* driver = SDL_GetAudioDriver(i);
 				if (nullptr == driver) continue;
-				m_config->acodec_pars.drivers.insert(std::pair<int32_t, std::string>(i, driver));				
+				m_config->acodec_pars.drivers.insert(std::pair<int32_t, std::string>(i, driver));
 				if (strstr(driver, "directsound"))
 					effort_driver_name = (char*)driver;
 				out("	#%d: %s\n", i, driver);
-			}			
+			}
+			static std::once_flag once;
+			std::call_once(once, [&](void)->void
+			{// Warning: Inner will close relative window. Ensure call once!
+				m_config->speakr_driv = effective(m_config->speakr_driv.c_str())
+					? m_config->speakr_driv.c_str() : effort_driver_name;
+				if (SDL_AudioInit(m_config->speakr_driv.c_str()))
+					err("SDL_AudioInit\n\n", SDL_GetError());
+				out("--->Using audio driver: %s \n\n", m_config->speakr_driv.c_str());
+			});
 		}
-		static std::once_flag once;
-		std::call_once(once, [&](void)->void
-		{// Warning: Inner will close relative window. Ensure call once!
-			m_config->speakr_driv = effective(m_config->speakr_driv.c_str())
-				? m_config->speakr_driv.c_str() : effort_driver_name;
-			if (SDL_AudioInit(m_config->speakr_driv.c_str()))
-				err( "SDL_AudioInit\n\n", SDL_GetError());
-			out("--->Using audio driver: %s \n\n", m_config->speakr_driv.c_str());
-		});
 
 		// 2.填充音频设备参数.
 		m_desire_spec.freq		= m_config->acodec_pars.smp_rate;
@@ -861,7 +781,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 
 		// 4.启动音频渲染设备.
 		SDL_PauseAudioDevice(m_audio_devID, 0);
-		out("@@@ Open Audio device success! speaker[id=%d]=%s status=%d (1-playing)\n",
+		SDL_Log("@@@ Open Audio device success! speaker[id=%d]=%s status=%d (1-playing)\n",
 			m_audio_devID, m_config->speakr_name.c_str(), SDL_GetAudioDeviceStatus(m_audio_devID));
 	}
 
@@ -876,17 +796,12 @@ AudioMrender::closeAudioDevice(bool is_mrender)
 		std::lock_guard<std::mutex> locker(speakr_lock);
 		if (m_audio_devID >= 2)
 		{
-			while (SDL_GetQueuedAudioSize(m_audio_devID) > 0)
-			{
+			if (SDL_GetQueuedAudioSize(m_audio_devID) > 0)
 				SDL_ClearQueuedAudio(m_audio_devID);
-				std::this_thread::sleep_for(std::chrono::milliseconds(10));
-				msg("wating....\n");
-			}
 			SDL_CloseAudioDevice(m_audio_devID); //Ensure safe for multiple instances.
 			m_signal_rset = true;
 		}
 	}
-	atexit(SDL_AudioQuit);//Ensure safe for multiple instances.
 }
 
 bool 

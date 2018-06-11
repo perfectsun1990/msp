@@ -1,4 +1,4 @@
-
+﻿
 PROJECT(mplayer)
 
 #append_default_search_paths(CMAKE_PREFIX_PATH, ON)
@@ -53,6 +53,7 @@ SET(MEDIACORE_HEADERS
 	mplayer.hpp
 	demuxer.hpp
 	decoder.hpp
+	synchro.hpp
 	mrender.hpp
 	pubcore.hpp)
 SET(MEDIACORE_SOURCES 
@@ -60,6 +61,7 @@ SET(MEDIACORE_SOURCES
 	mplayer.cpp
 	demuxer.cpp
 	decoder.cpp
+	synchro.cpp
 	mrender.cpp)
 SOURCE_GROUP(${PROJECT_NAME}		 FILES			${MEDIACORE_SOURCES} ${MEDIACORE_HEADERS})
 LIST(APPEND ALL_SOURCES_AND_HEADERS  				${MEDIACORE_SOURCES} ${MEDIACORE_HEADERS})

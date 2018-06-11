@@ -4,39 +4,19 @@
 #include "pubcore.hpp"
 #include "demuxer.hpp"
 #include "decoder.hpp"
+#include "synchro.hpp"
 #include "mrender.hpp"
-
-class IMpTimerObserver
-{
-public:
-	IMpTimerObserver();
-	~IMpTimerObserver();
-
-private:
-
-};
-
-#define AV_SYNC_THRESHOLD 0.01
-#define AV_NOSYNC_THRESHOLD 10.0
-
-class Clock
-{
-public:
-	Clock();
-	~Clock();
-
-private:
-
-};
 
 class Mplayer :
 	public std::enable_shared_from_this<Mplayer>,
 	public IDemuxerObserver,
 	public IDecoderObserver,
+	public ISynchroObserver,
 	public IMrenderObserver
 {
 public:
-	Mplayer(const char* url, const char* speakr = "", const void* window = nullptr);
+	Mplayer(const char* url, 
+		const char* speakr = "", const void* window = nullptr);
 	~Mplayer();
 	/* configs functions. */
 	STATUS	status(void);					 
@@ -44,61 +24,35 @@ public:
 	void	update(void* config);					 
 	int64_t durats(void);//ms
 	/* control functions. */
-	bool mInit(void);
-	void start(void);
-	void stopd(void);
-	void pause(bool pauseflag);
-	void seekp(int64_t seektp);
+	bool	mInit(void);
+	void	start(void);
+	void	stopd(void);
+	void	pause(bool pauseflag);
+	void	seekp(int64_t seektp);
 private:
 	// Demuxer->Decoder
-	void onPacket(std::shared_ptr<MPacket> av_pkt)	override;
-	// Decoder->Mrender
-	void onMFrame(std::shared_ptr<MRframe> av_frm)	override;
-	// Mrender->Maneger.
-	void onMPoint(int32_t type, double upts)		override;
-	double decodeClock();
-	double getSyncAdjustedPtsDiff(double pts, double pts_diff);
+	void onMPkt(std::shared_ptr<MPacket> av_pkt)	  override;
+	// Decoder->Synchro								  
+	void onMFrm(std::shared_ptr<MRframe> av_frm)	  override;
+	// Synchro->Mrender								  
+	void onSync(std::shared_ptr<MRframe> av_frm)	  override;
+	// Mrender->Maneger.							  
+	void onMPts(int32_t type, double upts)			  override;
 private:
-	std::atomic<bool>				m_signal_quit{ false };
-	std::atomic<bool>				m_signal_init{ false };
-	std::atomic<bool>				m_signal_rest{ false };
+	std::atomic<STATUS>					m_status{ E_INVALID };
+	std::atomic<bool>					m_signal_quit{ false };
+	std::atomic<bool>					m_signal_init{ false };
+	std::atomic<bool>					m_signal_rest{ false };
 
-	std::string						m_inputf{ "" };
-	std::string						m_speakr{ "" };
-	const void*						m_window{ nullptr };
-#if 1
-	AT::safe_queue<std::shared_ptr<MRframe>> m_vrender_Q;
-	std::mutex						m_vrender_Q_mutx;
-	std::condition_variable			m_vrender_Q_cond;
-	AT::safe_queue<std::shared_ptr<MRframe>> m_arender_Q;
-	std::mutex						m_arender_Q_mutx;
-	std::condition_variable			m_arender_Q_cond;
-	std::thread						m_vrefesh_worker;
-	std::thread						m_arefesh_worker;
-
-	double m_current_ptsv = 0;
-	int64_t m_current_pts_timev = 0;
-	double m_previous_ptsv = 0;
-	double m_previous_pts_diffv = 40e-3;
-	int64_t m_start_ptsv = 0;
-	double m_predicted_ptsv = 0.0;
-	bool m_first_framev = true;
-	double m_next_wakev = 0.0;
-
-	double m_current_pts = 0;
-	int64_t m_current_pts_time = 0;
-	double m_previous_pts = 0;
-	double m_previous_pts_diff = 40e-3;
-	int64_t m_start_pts = 0;
-	double m_predicted_pts = 0.0;
-	bool m_first_frame = true;
-	double m_next_wake = 0.0;
-#endif
+	std::string							m_inputf{ "" };
+	std::string							m_speakr{ "" };
+	const void*							m_window{ nullptr };
 	//
-	std::shared_ptr<IDemuxer> 		m_mdemuxer{ nullptr };
-	std::shared_ptr<IDecoder> 		m_adecoder{ nullptr };
-	std::shared_ptr<IDecoder> 		m_vdecoder{ nullptr };
-	std::shared_ptr<IMrender> 		m_amrender{ nullptr };
-	std::shared_ptr<IMrender> 		m_vmrender{ nullptr };
+	std::shared_ptr<ISynchro> 			m_msynchro{ nullptr };
+	std::shared_ptr<IDemuxer> 			m_mdemuxer{ nullptr };
+	std::shared_ptr<IDecoder> 			m_adecoder{ nullptr };
+	std::shared_ptr<IDecoder> 			m_vdecoder{ nullptr };
+	std::shared_ptr<IMrender> 			m_amrender{ nullptr };
+	std::shared_ptr<IMrender> 			m_vmrender{ nullptr };
 
 };

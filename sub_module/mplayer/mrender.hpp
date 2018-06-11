@@ -8,13 +8,13 @@
 /************************************************************************/
 typedef struct AVCodecPars
 {
-	int32_t		a_format{ 0 };
-	int32_t		channels{ 0 };
-	int32_t		smp_rate{ 0 };
-	int32_t		smp_nums{ 0 };
-	int32_t		v_format{ 0 };
-	int32_t		pix_with{ 0 };
-	int32_t		pix_high{ 0 };
+	int32_t							a_format{ 0 };
+	int32_t							channels{ 0 };
+	int32_t							smp_rate{ 0 };
+	int32_t							smp_nums{ 0 };
+	int32_t							v_format{ 0 };
+	int32_t							pix_with{ 0 };
+	int32_t							pix_high{ 0 };
 	std::map <int32_t, std::string> drivers;
 	std::map <int32_t, std::string> devices;
 	std::map <int32_t, std::string> rdrdrvs;
@@ -53,10 +53,10 @@ typedef struct VrdrConfig
 class IMrenderObserver
 {
 public:
-	virtual void onMPoint(int32_t type, double upts) = 0;
-// 	virtual void onRStart(void) = 0;
-// 	virtual void onRStopd(void) = 0;
-// 	virtual void onRPause(void) = 0;
+	virtual void onMPts(int32_t type, double upts) = 0;
+// 	virtual void onMRenderStart(void) = 0;
+// 	virtual void onMRenderStopd(void) = 0;
+// 	virtual void onMRenderPause(void) = 0;
 };
 class IMrender
 {
@@ -125,6 +125,7 @@ private:// Audio
 	std::thread 				m_worker;		    //线程句柄
 	AT::safe_queue<std::shared_ptr<MRframe>> m_render_Q;
 
+	SwrContext *				m_swrctx{ nullptr };
 	SDL_AudioSpec 				m_desire_spec{ 0 }; //音频参数
 	SDL_AudioSpec 				m_device_spec{ 0 };
 	SDL_AudioDeviceID 			m_audio_devID{ 0 }; //音频设备
@@ -167,6 +168,7 @@ private:
 	std::thread 				m_worker;
 	AT::safe_queue<std::shared_ptr<MRframe>> m_render_Q;
 
+	SwsContext *				m_swsctx{ nullptr };
 	SDL_Window*    				m_window{ nullptr };//窗口句柄
 	SDL_Window*    				m_sample{ nullptr };//窗口句柄<外部参考>
 	SDL_Renderer*   			m_render{ nullptr };//渲染句柄

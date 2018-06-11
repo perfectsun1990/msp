@@ -16,10 +16,10 @@ typedef struct VdecConfig
 class IDecoderObserver
 {
 public:
-	virtual	void onMFrame(std::shared_ptr<MRframe> av_frm) = 0;
-// 	virtual void onDStart(void) = 0;
-// 	virtual void onDStopd(void) = 0;
-// 	virtual void onDPause(void) = 0;
+	virtual	void onMFrm(std::shared_ptr<MRframe> av_frm) = 0;
+// 	virtual void onDecoderStart(void) = 0;
+// 	virtual void onDecoderStopd(void) = 0;
+// 	virtual void onDecoderPause(void) = 0;
 };
 class IDecoder
 {

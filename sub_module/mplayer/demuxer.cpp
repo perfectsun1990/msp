@@ -48,8 +48,8 @@ MediaDemuxer::start(void)
 			if (m_config->pauseflag)
 			{//send av cache packets to callback....
 				if (!m_observer.expired()) {
-					m_observer.lock()->onPacket(m_acache);
-					m_observer.lock()->onPacket(m_vcache);
+					m_observer.lock()->onMPkt(m_acache);
+					m_observer.lock()->onMPkt(m_vcache);
 				}
 				av_usleep(10 * 1000);//less then this.
 				continue;
@@ -110,7 +110,7 @@ MediaDemuxer::start(void)
 
 			// 6.callback...
 			if (!m_observer.expired())
-				m_observer.lock()->onPacket(av_pkt);
+				m_observer.lock()->onMPkt(av_pkt);
 		}
 		av_log(nullptr, AV_LOG_WARNING, "Media Demuxer finished! m_signal_quit=%d\n", m_signal_quit);
 	});

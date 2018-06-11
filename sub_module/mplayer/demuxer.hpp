@@ -13,11 +13,11 @@ typedef struct MdmxConfig
 class IDemuxerObserver
 {// default use ffmpeg.
 public:
-	virtual void onPacket(std::shared_ptr<MPacket> av_pkt) = 0;
-// 	virtual void onFStart(void) = 0;
-// 	virtual void onFStopd(void) = 0;
-// 	virtual void onFPause(void) = 0;
-// 	virtual void onFSeekp(void) = 0;
+	virtual void onMPkt(std::shared_ptr<MPacket> av_pkt) = 0;
+// 	virtual void onDemuxerStart(void) = 0;
+// 	virtual void onDemuxerStopd(void) = 0;
+// 	virtual void onDemuxerPause(void) = 0;
+// 	virtual void onDemuxerSeekp(void) = 0;
 };
 
 class IDemuxer
