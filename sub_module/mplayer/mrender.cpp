@@ -33,7 +33,7 @@ fmtconvert(int32_t av_type, int32_t ff_fmt)
 			break;
 			break;
 		default:
-			printf("err ff_fmt!=%d\n", ff_fmt);
+			err("invalid video ff_fmt=%d\n", ff_fmt);
 			return -1;
 		}
 	}
@@ -61,7 +61,7 @@ fmtconvert(int32_t av_type, int32_t ff_fmt)
 			format = AUDIO_F32SYS;
 			break;
 		default:
-			printf("err ff_fmt!=%d\n", ff_fmt);
+			err("invalid audio ff_fmt=%d\n", ff_fmt);
 			return -1;
 		}
 	}
@@ -236,6 +236,7 @@ VideoMrender::start()
 					if (!std::get<0>(m_buffer)) break;
 					std::get<1>(m_buffer) = av_frm->pfrm->width * av_frm->pfrm->height * 3 / 2;
 					m_signal_rset = false;
+					SET_STATUS(m_status, E_STARTED);
 				}
 
 				if (!(av_yuv420p_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
@@ -277,7 +278,6 @@ VideoMrender::start()
 			av_log(nullptr, AV_LOG_WARNING, "Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
 		});
 	}
-	SET_STATUS(m_status, E_STARTED);
 }
 
 void
@@ -355,7 +355,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 				m_config->window_driv = effective(m_config->window_driv.c_str())
 					? m_config->window_driv.c_str() : effort_driver_name;
 				if (SDL_VideoInit(m_config->window_driv.c_str()))
-					err("SDL_VideoInit\n\n", SDL_GetError());
+					err("SDL_VideoInit %s\n\n", SDL_GetError());
 				out("--->Using video driver: %s \n\n", m_config->window_driv.c_str());
 			});
 		}
@@ -658,13 +658,14 @@ AudioMrender::start()
 					m_signal_rset = true;
 				}
 				if (m_signal_rset)
-				{
-					if (!resetAudioDevice())			  break;
+				{//Bug: some audio->nb_samples is changed frequently.
+					if (!resetAudioDevice(true))			  break;
 					av_pcmalaw_freep(std::get<0>(m_buffer));// cahce av_frm data buffer.
 					std::get<0>(m_buffer) = av_pcmalaw_clone(av_frm->pfrm);
 					if (nullptr == std::get<0>(m_buffer)) break;
 					std::get<1>(m_buffer) = av_samples_get_buffer_size(nullptr, av_frm->pfrm->channels, av_frm->pfrm->nb_samples, (enum AVSampleFormat)av_frm->pfrm->format, 1);
 					m_signal_rset = false;
+					SET_STATUS(m_status, E_STARTED);
 				}
 
 				if (!(av_pcmalaw_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
@@ -687,7 +688,6 @@ AudioMrender::start()
 			av_log(nullptr, AV_LOG_WARNING, "Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
 		});
 	}
-	SET_STATUS(m_status, E_STARTED);
 }
 
 void
@@ -739,7 +739,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 				m_config->speakr_driv = effective(m_config->speakr_driv.c_str())
 					? m_config->speakr_driv.c_str() : effort_driver_name;
 				if (SDL_AudioInit(m_config->speakr_driv.c_str()))
-					err("SDL_AudioInit\n\n", SDL_GetError());
+					err("SDL_AudioInit %s\n\n", SDL_GetError());
 				out("--->Using audio driver: %s \n\n", m_config->speakr_driv.c_str());
 			});
 		}
@@ -794,11 +794,13 @@ AudioMrender::closeAudioDevice(bool is_mrender)
 	if (is_mrender)
 	{
 		std::lock_guard<std::mutex> locker(speakr_lock);
-		if (m_audio_devID >= 2)
+		if (m_audio_devID > 0 && 
+			SDL_AUDIO_STOPPED != SDL_GetAudioDeviceStatus(m_audio_devID))
 		{
 			if (SDL_GetQueuedAudioSize(m_audio_devID) > 0)
 				SDL_ClearQueuedAudio(m_audio_devID);
-			SDL_CloseAudioDevice(m_audio_devID); //Ensure safe for multiple instances.
+			SDL_CloseAudioDevice(m_audio_devID);//Ensure safe for multiple instances.
+			m_audio_devID = 0;//Fix!!! must reset to 0!!!
 			m_signal_rset = true;
 		}
 	}

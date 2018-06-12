@@ -60,10 +60,10 @@ MediaDemuxer::start(void)
 				m_signal_rset = true;
 			if (m_signal_rset)
 			{
-				if (!resetMudemuxer(true))
-					break;
+				if (!resetMudemuxer(true))   break;
 				SET_PROPERTY(av_pkt->prop, P_BEGP);
 				m_signal_rset = false;
+				SET_STATUS(m_status, E_STARTED);
 			}
 
 			// 3.探测并处理seekp动作.
@@ -114,8 +114,6 @@ MediaDemuxer::start(void)
 		}
 		av_log(nullptr, AV_LOG_WARNING, "Media Demuxer finished! m_signal_quit=%d\n", m_signal_quit);
 	});
-
-	SET_STATUS(m_status, E_STARTED);
 }
 
 void

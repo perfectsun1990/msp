@@ -46,7 +46,8 @@ bool Mplayer::mInit(void)
 			&& E_INVALID != m_vdecoder->status()
 			&& E_INVALID != m_adecoder->status() 
 			&& E_INVALID != m_vmrender->status()
-			&& E_INVALID != m_amrender->status());		
+			&& E_INVALID != m_amrender->status());
+		assert(m_signal_init);
 	}
 	return m_signal_init;
 }
@@ -138,8 +139,8 @@ Mplayer::onMPkt(std::shared_ptr<MPacket> av_pkt)
 void 
 Mplayer::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
-	m_adecoder->pause((m_msynchro->Q_size() >= MAX_AUDIO_Q_SIZE));
-
+	m_adecoder->pause((m_msynchro->Q_size() >= MAX_AUDIO_Q_SIZE)
+	|| (m_msynchro->Q_size() >= MAX_VIDEO_Q_SIZE));
 	if (!CHK_PROPERTY(av_frm->prop, P_PAUS))
 		m_msynchro->onMFrm(av_frm);
 }
@@ -178,9 +179,7 @@ Mplayer::onMPts(int32_t type, double upts)
 		//if (upts > 10) m_vmrender->pause(true); hide audio.
 	}
 }
-//当前遗留的bug。使用wasapi会导致无法播放mp3。dsound不会，但是无论使用哪个
-//驱动 开关几次后会导致再次两个不同实例同时打开音频设备获取的设备号是一样的，从而导致杂音。
-//无法正常播放，优先使用dsound，其他的问题更多,sdl做的还是不够好。
+
 #include <QApplication>
 #include <QMainWindow>
 
@@ -202,13 +201,11 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 	std::thread([&]() 
 	{
-#if 1// 2 window test
+#if 0// 2 window test
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\海绵宝宝.mp3", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr2, (void*)window2.winId());
-// 		std::shared_ptr<Mplayer> mp2 =
-// 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks", speakr2, (void*)window2.winId());	
 #else
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4");
@@ -216,24 +213,15 @@ int32_t main(int32_t argc, char *argv[])
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
 		mp1->start();
-		//mp2->start();
-		std::this_thread::sleep_for(std::chrono::seconds(300));
-#if 1// 3 reopen test
-		mp1->stopd();
-		mp2->stopd();
-		for (int i=0;i <1;++i)
-		{// Fix: this will cause sdl invalid audio mixer.
-			mp1->start();
-			std::this_thread::sleep_for(std::chrono::seconds(1));
+#if 0// 3 reopen thread_safe test
+		for (int32_t i=0 ;i<5; ++i)
+		{
 			mp1->stopd();			
-			mp2->start();
-			std::this_thread::sleep_for(std::chrono::seconds(1));
+			mp1->start();
 			mp2->stopd();
+			mp2->start();
 		}
-		mp1->start();
-		mp2->start();
 #endif
-
 		std::this_thread::sleep_for(std::chrono::seconds(1000));
 	}).detach();
 

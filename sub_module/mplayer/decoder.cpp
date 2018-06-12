@@ -70,6 +70,7 @@ void AudioDecoder::start(void)
 				if (!resetCodecer(true))
 					break;
 				m_signal_rset = false;
+				SET_STATUS(m_status, E_STARTED);
 				av_log(nullptr, AV_LOG_WARNING, "Reset audio Codecer!\n");
 			}
 			
@@ -125,8 +126,6 @@ void AudioDecoder::start(void)
 		}
 		av_log(nullptr, AV_LOG_WARNING, "Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
-
-	SET_STATUS(m_status, E_STARTED);
 }
 
 void AudioDecoder::stopd(bool stop_quik)
@@ -322,6 +321,7 @@ void VideoDecoder::start(void)
 				if (!resetCodecer(true))
 					break;
 				m_signal_rset = false;
+				SET_STATUS(m_status, E_STARTED);
 				av_log(nullptr, AV_LOG_WARNING, "Reset video Codecer!\n");
 			}
 
@@ -377,8 +377,6 @@ void VideoDecoder::start(void)
 		}
 		av_log(nullptr, AV_LOG_WARNING, "Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
-
-	SET_STATUS(m_status, E_STARTED);
 }
 
 void 

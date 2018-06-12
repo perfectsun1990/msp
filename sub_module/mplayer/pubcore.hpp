@@ -436,8 +436,7 @@ typedef enum STATUS
 	E_STARTED,
 	E_STOPING,
 	E_STOPPED,
-	E_UPDTING,
-	E_UPDATED,
+	E_PAUSING,
 }STATUS;//Ext...
 
 #define CHK_RETURN(x) do{ if(x) return; }		while (0)

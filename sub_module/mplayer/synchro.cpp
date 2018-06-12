@@ -58,6 +58,13 @@ MediaSynchro::start(void)
 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
 				continue;
 			}
+			if (m_config->pauseflag)
+			{
+				if (!m_observer.expired())
+					m_observer.lock()->onSync(m_vcache);
+				av_usleep(10 * 1000);
+				continue;
+			}
 			m_vsychro_Q.popd(av_frm);
 
 			double pts_diff;
@@ -79,7 +86,7 @@ MediaSynchro::start(void)
 			}
 
 			// 修正渲染延时:pts_diff。。。,这个值吧就是delay的一个参考时间。delay不能超过这个值
-			if (pts_diff <= 0 || late_first_frame)
+			if (pts_diff <= 0 || late_first_frame || CHK_PROPERTY(av_frm->prop,P_SEEK))
 			{//修正第一帧负的pts以及正的但是大于1s的pts，diff太大会导致阻塞，<0会导致不延时。
 			 //即时间戳回绕的问题，这里仅简单的保持为上次的延时。正常只进来一次，多次进入肯定是他妈编码的时间戳的出问题了。
 				pts_diff = m_previous_pts_diffv;
@@ -154,6 +161,14 @@ MediaSynchro::start(void)
 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
 				continue;
 			}
+
+			if (m_config->pauseflag)
+			{
+				if (!m_observer.expired())
+					m_observer.lock()->onSync(m_acache);
+				av_usleep(10 * 1000);
+				continue;
+			}
 			m_asychro_Q.popd(av_frm);
 
 			//AT::Timer timer;
@@ -175,7 +190,7 @@ MediaSynchro::start(void)
 				m_first_frame = false;
 			}
 			// 修正渲染延时:pts_diff。。。,这个值吧就是delay的一个参考时间。delay不能超过这个值
-			if (pts_diff <= 0 || late_first_frame)
+			if (pts_diff <= 0 || late_first_frame || CHK_PROPERTY(av_frm->prop, P_SEEK))
 			{//修正第一帧负的pts以及正的但是大于1s的pts，diff太大会导致阻塞，<0会导致不延时。
 			 //即时间戳回绕的问题，这里仅简单的保持为上次的延时。正常只进来一次，多次进入肯定是他妈编码的时间戳的出问题了。
 				pts_diff = m_previous_pts_diff;
@@ -265,7 +280,8 @@ MediaSynchro::status(void)
 
 int32_t MediaSynchro::Q_size(void)
 {
-	return m_asychro_Q.size();
+	return ((m_asychro_Q.size() > m_vsychro_Q.size()) ? 
+		m_asychro_Q.size() : m_vsychro_Q.size());
 }
 
 void MediaSynchro::updateSyncType(int32_t sync_type)
@@ -319,10 +335,11 @@ double MediaSynchro::getSyncAdjustedPtsDiff(double pts, double pts_diff)
 	double new_pts_diff = pts_diff;
 	double sync_time = decodeClock();// m_sync_clock->syncClock();
 	double diff = pts - sync_time;//s 音视频时间戳的差值.负数表示视频慢了，正数表示视频快了。
-	double sync_threshold = (pts_diff > AV_SYNC_THRESHOLD)
+	double sync_threshold = 
+		 (pts_diff > AV_SYNC_THRESHOLD)
 		? pts_diff : AV_SYNC_THRESHOLD;
-	//设置同步精度，最小10ms，最大是视频两次时间戳的差值，也就是duratino，如40ms 23ms。
 
+	//设置同步精度，最小10ms，最大是视频两次时间戳的差值，也就是duratino，如40ms 23ms。
 	if (fabs(diff) < AV_NOSYNC_THRESHOLD) //时间戳相差不超过10s进行同步.
 	{
 		if (diff <= -sync_threshold) {//视频比音频慢了10-40ms。
