@@ -201,7 +201,7 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 	std::thread([&]() 
 	{
-#if 0// 2 window test
+#if 1// 2 window test
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\海绵宝宝.mp3", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
@@ -213,7 +213,8 @@ int32_t main(int32_t argc, char *argv[])
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
 		mp1->start();
-#if 0// 3 reopen thread_safe test
+		mp2->start();
+#if 1// 3 reopen thread_safe test
 		for (int32_t i=0 ;i<5; ++i)
 		{
 			mp1->stopd();			

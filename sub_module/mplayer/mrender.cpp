@@ -646,16 +646,18 @@ AudioMrender::start()
 				}
 				
 				// 2.check and reset SDL2 devices.
-				if (m_config->acodec_pars.a_format != av_frm->pfrm->format
-					|| m_config->acodec_pars.smp_nums != av_frm->pfrm->nb_samples
-					|| m_config->acodec_pars.channels != av_frm->pfrm->channels
-					|| m_config->acodec_pars.smp_rate != av_frm->pfrm->sample_rate)
+				if (	m_config->acodec_pars.a_format != av_frm->pfrm->format
+					||	m_config->acodec_pars.smp_nums != av_frm->pfrm->nb_samples
+					||	m_config->acodec_pars.channels != av_frm->pfrm->channels
+					||	m_config->acodec_pars.smp_rate != av_frm->pfrm->sample_rate)
 				{//update codec pars.
 					m_config->acodec_pars.a_format = av_frm->pfrm->format;
 					m_config->acodec_pars.smp_nums = av_frm->pfrm->nb_samples;
 					m_config->acodec_pars.channels = av_frm->pfrm->channels;
 					m_config->acodec_pars.smp_rate = av_frm->pfrm->sample_rate;
 					m_signal_rset = true;
+					if ((m_config->acodec_pars.smp_nums & (m_config->acodec_pars.smp_nums - 1)))
+						av_log(nullptr, AV_LOG_WARNING, "Audio maybe brokenly for SDL2 limit![smp_nums=%d]\n", m_config->acodec_pars.smp_nums);
 				}
 				if (m_signal_rset)
 				{//Bug: some audio->nb_samples is changed frequently.
