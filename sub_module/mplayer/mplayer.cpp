@@ -6,9 +6,9 @@ Mplayer::Mplayer(const char* url, const char* speakr, const void* window)
 {
 	SET_STATUS(m_status, E_INVALID);
 	char tmp_uf8[512] = { 0 };
-	Mul2Utf8(url,		tmp_uf8, sizeof(tmp_uf8));
+	Ansi2Utf8(url,		tmp_uf8, sizeof(tmp_uf8));
 	m_inputf = tmp_uf8;
-	Mul2Utf8(speakr,	tmp_uf8, sizeof(tmp_uf8));
+	Ansi2Utf8(speakr,	tmp_uf8, sizeof(tmp_uf8));
 	m_speakr = tmp_uf8;
 	SET_STATUS(m_status, E_INITRES);
 }
@@ -214,7 +214,7 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 		mp1->start();
 		mp2->start();
-#if 1// 3 reopen thread_safe test
+#if 0// 3 reopen thread_safe test
 		for (int32_t i=0 ;i<5; ++i)
 		{
 			mp1->stopd();			

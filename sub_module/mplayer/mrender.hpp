@@ -123,7 +123,7 @@ private:// Audio
 	double						m_curpts{ 0 };
 	std::shared_ptr<ArdrConfig>	m_config;		    //配置参数
 	std::thread 				m_worker;		    //线程句柄
-	AT::safe_queue<std::shared_ptr<MRframe>> m_render_Q;
+	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;
 
 	SwrContext *				m_swrctx{ nullptr };
 	SDL_AudioSpec 				m_desire_spec{ 0 }; //音频参数
@@ -166,7 +166,7 @@ private:
 	double						m_curpts{ 0 };
 	std::shared_ptr<VrdrConfig>	m_config;			//配置参数
 	std::thread 				m_worker;
-	AT::safe_queue<std::shared_ptr<MRframe>> m_render_Q;
+	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;
 
 	SwsContext *				m_swsctx{ nullptr };
 	SDL_Window*    				m_window{ nullptr };//窗口句柄

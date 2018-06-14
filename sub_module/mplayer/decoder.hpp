@@ -79,7 +79,7 @@ private:
 	std::shared_ptr<MRframe>	m_acache{ nullptr };
 	std::shared_ptr<AdecConfig>	m_config;				//配置参数
 	std::thread 				m_worker;
-	AT::safe_queue<std::shared_ptr<MPacket>> m_decoder_Q;
+	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;
 	
 	AVCodec*					m_codec{ nullptr };
 	AVRational					m_framerate{ 0,1 };
@@ -119,7 +119,7 @@ private:
 	std::shared_ptr<MRframe>	m_vcache{ nullptr };
 	std::shared_ptr<VdecConfig>	m_config;				//配置参数
 	std::thread 				m_worker;
-	AT::safe_queue<std::shared_ptr<MPacket>> m_decoder_Q;	
+	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;	
 	
 	AVCodec*					m_codec{ nullptr };
 	AVRational					m_framerate{ 0,1 };

@@ -13,7 +13,7 @@ MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IDemuxerObserver
 {
 	SET_STATUS(m_status,E_INVALID);
 	
-	if (!effective(inputf))	return;
+	if (!StrEffect(inputf))	return;
 
 	m_config = std::make_shared<MdmxConfig>();
 	m_config->urls = inputf;

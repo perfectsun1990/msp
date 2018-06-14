@@ -73,13 +73,13 @@ private:
 	std::atomic<bool>					m_signalArset{ true };
 	std::shared_ptr<MRframe>			m_acache{ nullptr };	
 	std::thread 						m_asychro_worker;
-	AT::safe_queue<std::shared_ptr<MRframe>> m_asychro_Q;
+	AT::SafeQueue<std::shared_ptr<MRframe>> m_asychro_Q;
 
 	std::atomic<bool>					m_signalVrset{ true };
 	std::atomic<bool>					m_signalVquit{ true };
 	std::shared_ptr<MRframe>			m_vcache{ nullptr };
 	std::thread 						m_vsychro_worker;
-	AT::safe_queue<std::shared_ptr<MRframe>> m_vsychro_Q;
+	AT::SafeQueue<std::shared_ptr<MRframe>> m_vsychro_Q;
 
 	double m_current_ptsv = 0;
 	int64_t m_current_pts_timev = 0;

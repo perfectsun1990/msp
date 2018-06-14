@@ -119,7 +119,7 @@ VideoMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only rescale for unsupported foramts,convert to I420.
-		AVFrame* pfrm = rescale(&m_swsctx, av_frm->pfrm,
+		AVFrame* pfrm = av_rescale(&m_swsctx, av_frm->pfrm,
 			av_frm->pfrm->width,av_frm->pfrm->height, AV_PIX_FMT_YUV420P);
 		if (pfrm == nullptr) {
 			err("video: pfrm=%p rescale failed...\n", pfrm);
@@ -352,7 +352,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			static std::once_flag once;
 			std::call_once(once, [&](void)->void
 			{// Warning: Inner will close relative window. Ensure call once!
-				m_config->window_driv = effective(m_config->window_driv.c_str())
+				m_config->window_driv = StrEffect(m_config->window_driv.c_str())
 					? m_config->window_driv.c_str() : effort_driver_name;
 				if (SDL_VideoInit(m_config->window_driv.c_str()))
 					err("SDL_VideoInit %s\n\n", SDL_GetError());
@@ -375,7 +375,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 					effort_device_name = (char*)device;
 				out("	#%d: %s\n", i, device);
 			}
-			m_config->window_disp = effective(m_config->window_disp.c_str())
+			m_config->window_disp = StrEffect(m_config->window_disp.c_str())
 				? m_config->window_disp.c_str() : effort_device_name;
 			out("--->Using video device: %s\n\n", m_config->window_disp.c_str());
 		}
@@ -426,12 +426,12 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 				m_config->vcodec_pars.rdrdrvs.insert(std::pair<int32_t, std::string>(i, rdrdrv.name));
 				if (!strcmp(rdrdrv.name, "direct3d"))
 					SDL_GetRenderDriverInfo((best_effort_rdrdrv = i), &rdrdrv);
-				if (effective(m_config->window_rdrv.c_str())
+				if (StrEffect(m_config->window_rdrv.c_str())
 					&& !strcmp(rdrdrv.name, m_config->window_rdrv.c_str()) )
 					best_effort_rdrdrv = i;
 				out("	#%d %s\n", i, rdrdrv.name);
 			}
-			m_config->window_rdrv = effective(m_config->window_rdrv.c_str())
+			m_config->window_rdrv = StrEffect(m_config->window_rdrv.c_str())
 				? m_config->window_rdrv.c_str() : rdrdrv.name;
 			out("--->Using render driver: %s\n\n", m_config->window_rdrv.c_str());
 		}
@@ -559,7 +559,7 @@ AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only resmple for unsupported foramts,convert to fltp.
-		AVFrame* pfrm = resmple(&m_swrctx, av_frm->pfrm, av_frm->pfrm->sample_rate,
+		AVFrame* pfrm = av_resmple(&m_swrctx, av_frm->pfrm, av_frm->pfrm->sample_rate,
 			av_frm->pfrm->nb_samples, av_frm->pfrm->channel_layout, AV_SAMPLE_FMT_FLTP);
 		if (pfrm == nullptr) {
 			err("Audio: pfrm=%p resmple failed...\n", pfrm);
@@ -738,7 +738,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 			static std::once_flag once;
 			std::call_once(once, [&](void)->void
 			{// Warning: Inner will close relative window. Ensure call once!
-				m_config->speakr_driv = effective(m_config->speakr_driv.c_str())
+				m_config->speakr_driv = StrEffect(m_config->speakr_driv.c_str())
 					? m_config->speakr_driv.c_str() : effort_driver_name;
 				if (SDL_AudioInit(m_config->speakr_driv.c_str()))
 					err("SDL_AudioInit %s\n\n", SDL_GetError());
@@ -769,14 +769,15 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 					effort_device_name = (char*)device;
 				out("	#%d: %s\n", i, device);
 			}
-			m_config->speakr_name = effective(m_config->speakr_name.c_str())
+			m_config->speakr_name = StrEffect(m_config->speakr_name.c_str())
 				? m_config->speakr_name.c_str() : effort_device_name;
 		}
 		m_audio_devID = SDL_OpenAudioDevice(m_config->speakr_name.c_str(), 0,
 			&m_desire_spec, &m_device_spec, SDL_AUDIO_ALLOW_ANY_CHANGE);
 		if (m_audio_devID < 2)
 		{
-			err( "Open device failed: %s!\n", SDL_GetError());
+			err( "Open device[%s] failed! %s!\n",
+				m_config->speakr_name.c_str(), SDL_GetError());
 			return false;
 		}
 		out("--->Using audio device: %s\n\n", m_config->speakr_name.c_str());

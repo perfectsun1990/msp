@@ -14,10 +14,6 @@
 #pragma  once
 
 /***************************1.公用系统文件集合***************************/
-#ifdef  WIN32
-#include <windows.h>
-#include <corecrt_io.h>
-#endif
 #ifdef  __LINUX__
 #include <unistd.h>
 #include <pthread.h>
@@ -36,7 +32,10 @@
 #include <pwd.h>
 #include <dirent.h>
 #endif
-
+#ifdef  WIN32
+#include <windows.h>
+#include <corecrt_io.h>
+#endif
 #ifdef __cplusplus
 #include <iostream>
 #include <future>
@@ -56,9 +55,6 @@
 #include <functional>
 #include <cstdio>
 #include <cassert>
-#endif
-
-#ifdef __cplusplus
 extern "C"
 {
 #endif
@@ -85,175 +81,14 @@ extern "C"
 #endif
 
 /***************************2.公用函数或宏封装***************************/
+typedef enum log_rank{	LOG_ERR, LOG_WAR,	LOG_MSG, LOG_DBG,
+}log_rank_t;
 
-// 1.位操作宏函数
-#define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
-#define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF )           // 获取x的(n~n+07)位
-#define BCUT_16(x,n)                ( ( (x) >> (n) ) & 0xFFFF )         // 获取x的(n~n+15)位
-
-#define BSET(x,n)                   ( (x) |=  ( 1 << (n) ) )            // 设置x的第n位为"1"
-#define BCLR(x,n)                   ( (x) &= ~( 1 << (n) ) )            // 清除x的第n位为"0"
-#define BCHK(x,n)                   ( ( (x) >> (n) ) & 1 )              // 检测某位是否是"1"
-
-#define BYTE_ORDR                   ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
-#define SWAP_16(x)                  ((x>>08&0xff)|(x<<08&0xff00))         // 大小端字节序转换
-#define SWAP_24(x)                  ((x>>16&0xff)|(x<<16&0xff0000)|x&0xff00)  
-#define SWAP_32(x)                  ((x>>24&0xff)|(x>>8&0xff00)|(x << 8 & 0xff0000) | (x << 24 & 0xff000000))  
-
-// 2.字符数组操作
-#define ELEMENTS(s)					( sizeof(s)/sizeof(s[0]) )
-#define FREESIZE(s)					( sizeof(s)- strlen(s)-1 )
-
-// 3.通用函数封装
-static inline bool
-effective(const char* dev_name)
-{
-	return (nullptr != dev_name  && '\0' != dev_name[0] && ' ' != dev_name[0]
-		&& '\t' != dev_name[0] && '\n' != dev_name[0]);
-}
-
-
-static inline void
-replace_c(std::string& str, char* old, char* mew)
-{
-	std::string::size_type pos(0);
-	while (true)
-	{
-		pos = str.find(old, pos);
-		if (pos != (std::string::npos))
-		{
-			str.replace(pos, strlen(old), mew);
-			pos += 2;//注意是加2，为了跳到下一个反斜杠  
-		}else {
-			break;
-		}
-	}
-}
-
-/***************************3.平台相关转换函数***************************/
-#ifdef WIN32
-static inline int32_t
-Utf82Uni(const char* utf8, wchar_t* unicode, uint32_t size)
-{
-	if (!utf8 || !strlen(utf8)) {
-		return 0;
-	}
-	wmemset(unicode, 0, size);
-	int32_t dwUnicodeLen = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
-	size_t num = dwUnicodeLen * sizeof(wchar_t);
-	if (num > size) {
-		return 0;
-	}
-	MultiByteToWideChar(CP_UTF8, 0, utf8, -1, unicode, dwUnicodeLen);
-	return dwUnicodeLen;
-}
-
-static inline int32_t
-Uni2Utf8(const wchar_t* unicode, char* utf8, int32_t size)
-{
-	if (!unicode || !wcslen(unicode)) {
-		return 0;
-	}
-	memset(utf8, 0, size);
-	int32_t len;
-	len = WideCharToMultiByte(CP_UTF8, 0, unicode, -1, NULL, 0, NULL, NULL);
-	if (len > size) {
-		return 0;
-	}
-	WideCharToMultiByte(CP_UTF8, 0, unicode, -1, utf8, len, NULL, NULL);
-	return len;
-}
-
-static inline int32_t
-Mul2Utf8(const char *mult, char* utf8, int32_t size)
-{
-	if (nullptr == mult || nullptr == utf8)
-		return 0;
-	memset(utf8, 0, size);
-	//返回接受字符串所需缓冲区的大小，已经包含字符结尾符'\0',iSize =wcslen(srcString)+1
-	int32_t iSize = MultiByteToWideChar(CP_ACP, 0, mult, -1, NULL, 0);
-	wchar_t* pUnicode = (wchar_t *)malloc(iSize * sizeof(wchar_t));
-	MultiByteToWideChar(CP_ACP, 0, mult, -1, pUnicode, iSize);
-	int32_t len = 0;
-	len = WideCharToMultiByte(CP_UTF8, 0, pUnicode, -1, NULL, 0, NULL, NULL);
-	if (len > size) {
-		return 0;
-	}
-	WideCharToMultiByte(CP_UTF8, 0, pUnicode, -1, utf8, len, NULL, NULL);
-	free(pUnicode);
-	return len;
-}
-
-static std::wstring
-str2wstr(const std::string& str)
-{
-	LPCSTR pszSrc = str.c_str();
-	int32_t nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, NULL, 0);
-	if (nLen == 0)
-		return std::wstring(L"");
-
-	wchar_t* pwszDst = new wchar_t[nLen];
-	if (!pwszDst)
-		return std::wstring(L"");
-
-	MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, nLen);
-	std::wstring wstr(pwszDst);
-	delete[] pwszDst;
-	pwszDst = NULL;
-
-	return wstr;
-}
-
-static std::string
-wstr2str(const std::wstring& wstr)
-{
-	LPCWSTR pwszSrc = wstr.c_str();
-	int32_t nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
-	if (nLen == 0)	return std::string("");
-	char* pszDst = new char[nLen];
-	if (!pszDst)	return std::string("");
-	WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
-	std::string str(pszDst);
-	delete[] pszDst;
-	return str;
-}
-
-static inline bool
-shellExecuteCommand(std::string cmd, std::string arg, bool is_show)
-{
-	std::wstring w_cmd = str2wstr(cmd);
-	std::wstring w_arg = str2wstr(arg);
-
-	SHELLEXECUTEINFO ShExecInfo;
-	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
-	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-	ShExecInfo.hwnd = NULL;
-	ShExecInfo.lpVerb = NULL;
-	ShExecInfo.lpFile = w_cmd.c_str(); //can be a file as well  
-	ShExecInfo.lpParameters = w_arg.c_str();
-	ShExecInfo.lpDirectory = NULL;
-	ShExecInfo.nShow = 0;
-	ShExecInfo.hInstApp = NULL;
-	BOOL ret = ShellExecuteEx(&ShExecInfo);
-	WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
-	DWORD dwCode = 0;
-	GetExitCodeProcess(ShExecInfo.hProcess, &dwCode);
-	if (dwCode)
-		printf("shellExecuteCommand: [%s %s <ErrorCode=%d>] error!\n", cmd.c_str(), arg.c_str(), dwCode);
-	CloseHandle(ShExecInfo.hProcess);
-	return !dwCode;
-}
-#else
-
-#endif
-
-/***************************3.兼容旧的调试机制***************************/
-typedef enum log_rank
-{
-	LOG_ERR, LOG_WAR,
-	LOG_MSG, LOG_DBG,
-}log_rank_t;//Warning: Just debug for test,must use log system in project.
-const static log_rank_t	rank				= LOG_MSG;
+/**
+*@公共的宏函数操作
+*/
+const static log_rank_t	rank =	  LOG_MSG;
+//Note: Just use for debug, it must be replaced by log system if used in project.
 #define err( format, ... )do{ if( LOG_ERR <= rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 #define war( format, ... )do{ if( LOG_WAR <= rank )\
@@ -264,7 +99,218 @@ const static log_rank_t	rank				= LOG_MSG;
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 #define out( format, ... )do{ fprintf(stderr, format, ##__VA_ARGS__); }while(0)
 
-/***************************4.公用类的安全封装***************************/
+#define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
+#define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF )           // 获取x的(n~n+07)位
+#define BCUT_16(x,n)                ( ( (x) >> (n) ) & 0xFFFF )         // 获取x的(n~n+15)位
+
+#define BSET(x,n)                   ( (x) |=  ( 1 << (n) ) )            // 设置x的第n位为"1"
+#define BCLR(x,n)                   ( (x) &= ~( 1 << (n) ) )            // 清除x的第n位为"0"
+#define BCHK(x,n)                   ( ( (x) >> (n) ) & 1 )              // 检测某位是否是"1"
+
+#define BYTE_ORDR                   ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
+#define SWAP_16(x)                  ((x>>08&0xff)|(x<<08&0xff00))       // 大小端字节序转换
+#define SWAP_24(x)                  ((x>>16&0xff)|(x<<16&0xff0000)|x&0xff00)  
+#define SWAP_32(x)                  ((x>>24&0xff)|(x>>8&0xff00)|(x << 8 & 0xff0000) | (x << 24 & 0xff000000))  
+
+#define ELEMENTS(s)					( sizeof(s)/sizeof(s[0]) )
+#define FREESIZE(s)					( sizeof(s)- strlen(s)-1 )
+
+/**
+ *@字符串集常用操作
+ */
+
+static inline bool
+StrEffect(const char* dev_name)
+{
+	return (nullptr != dev_name  && '\0' != dev_name[0] && ' ' != dev_name[0]
+		&& '\t' != dev_name[0] && '\r' != dev_name[0] && '\n' != dev_name[0]);
+}
+
+static inline std::vector<std::string>
+StrSplits(std::string str, std::string pattern)
+{
+	std::string::size_type pos;
+	std::vector<std::string> result;
+	str += pattern;//扩展字符串以方便操作
+	int size = str.size();
+
+	for (int i = 0; i < size; i++)
+	{
+		pos = str.find(pattern, i);
+		if (pos < size)
+		{
+			std::string s = str.substr(i, pos - i);
+			result.push_back(s);
+			i = pos + pattern.size() - 1;
+		}
+	}
+	return result;
+}
+
+static inline std::string
+StrReplace(std::string strSrc,
+	const std::string &oldStr, const std::string &newStr, int count = -1)
+{
+	std::string strRet = strSrc;
+	size_t pos = 0;
+	int l_count = 0;
+	if (-1 == count) // replace all
+		count = strRet.size();
+	while ((pos = strRet.find(oldStr, pos)) != std::string::npos)
+	{
+		strRet.replace(pos, oldStr.size(), newStr);
+		if (++l_count >= count) break;
+		pos += newStr.size();
+	}
+	return strRet;
+}
+
+/***************************3.平台相关通用函数***************************/
+/**
+*@字符编码常用函数
+*/
+#ifdef WIN32
+/**
+ *@Note:
+ *@iCharNums 标识字符或宽字符个数,而非字节个数.
+ *@所以确保size和目标datas的类型一致且大小足够.
+ */
+static inline int32_t
+Utf82Unic(const char* utf8, wchar_t* unic, int32_t size)
+{
+	if (!utf8 || !strlen(utf8) || !unic || size <= 0)
+		return 0;
+	wmemset(unic, 0, size);			//Note: F1  details.
+	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0, 
+		utf8, -1, nullptr, 0);
+	if (iCharNums > size)	return 0;
+	MultiByteToWideChar(CP_UTF8, 0,	//Covt: utf8->utf16
+		 utf8, -1, unic, iCharNums);
+	return iCharNums;
+}
+
+static inline int32_t
+Unic2Utf8(const wchar_t* unic, char* utf8, int32_t size)
+{
+	if ( !unic || !wcslen(unic) || !utf8 || size <= 0)
+		return 0;
+	memset(utf8, 0, size);			//Note: F1  details.
+	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0, 
+		unic, -1, nullptr, 0, nullptr, nullptr);
+	if (iCharNums > size)	return 0;
+	WideCharToMultiByte(CP_UTF8, 0, //Covt: utf16->utf8
+		unic, -1, utf8, iCharNums, nullptr, nullptr);
+	return iCharNums;
+}
+
+static inline int32_t
+Ansi2Unic(const char* ansi, wchar_t* unic, int32_t size)
+{
+	if (!ansi || !strlen(ansi) || !unic || size <= 0)
+		return 0;
+	wmemset(unic, 0, size);			//Note: F1  details.
+	int32_t iCharNums = MultiByteToWideChar(CP_ACP, 0,
+		ansi, -1, nullptr, 0);		
+	if (iCharNums > size)	return 0;
+	MultiByteToWideChar(CP_ACP, 0, 	//Covt: ansi->utf16
+		ansi, -1, unic, iCharNums);
+	return iCharNums;
+}
+
+static inline int32_t
+Unic2Ansi(const wchar_t* unic, char* ansi, int32_t size)
+{
+	if (!unic || !wcslen(unic) || !ansi || size <= 0)
+		return 0;
+	memset(ansi, 0, size);			//Note: F1  details.
+	int32_t iCharNums = WideCharToMultiByte(CP_ACP, 0,
+		unic, -1, nullptr, 0, nullptr, nullptr);
+	if (iCharNums > size)	return 0;
+	WideCharToMultiByte(CP_ACP,		//Covt: utf16->ansi
+		0, unic, -1, ansi, iCharNums, nullptr, nullptr);
+	return iCharNums;
+}
+
+static inline int32_t
+Ansi2Utf8(const char *ansi, char* utf8, int32_t size)
+{
+	memset(utf8, 0, size);			//Note: F1  details.
+	int32_t  iSize = strlen(ansi)+1;
+	wchar_t* pUnic = new wchar_t[iSize];
+	if (nullptr == pUnic)	goto handle_error;
+	int32_t iCharNums = Ansi2Unic(ansi, pUnic, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	iCharNums = Unic2Utf8(pUnic, utf8, size);
+	if (iCharNums <= 0)		goto handle_error;
+	delete[] pUnic;
+	return iCharNums;
+handle_error:
+	if (nullptr != pUnic)	delete[] pUnic;
+	return 0;
+}
+
+static std::wstring
+Astr2Wstr(const std::string& ansi)
+{
+	int32_t  iSize = (strlen(ansi.c_str()) + 1);
+	wchar_t* pUnic = new wchar_t[iSize];
+	if (nullptr == pUnic)	goto handle_error;
+	int32_t iCharNums = Ansi2Unic(ansi.c_str(), pUnic, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	delete[] pUnic;
+	return std::wstring(pUnic);
+handle_error:
+	if (nullptr != pUnic)	delete[] pUnic;
+	return std::wstring(L"");
+}
+
+static std::string
+Wstr2Astr(const std::wstring& wstr)
+{
+	int32_t  iSize = (wcslen(wstr.c_str()) + 1);
+	char* pAnsi = new char[iSize];
+	if (nullptr == pAnsi)	goto handle_error;
+	int32_t iCharNums = Unic2Ansi(wstr.c_str(), pAnsi, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	delete[] pAnsi;
+	return std::string(pAnsi);
+handle_error:
+	if (nullptr != pAnsi)	delete[] pAnsi;
+	return std::string("");
+}
+
+/**
+*@外部调用常用函数
+*/
+
+static inline bool
+ShellExec(std::string cmd, std::string arg, bool is_show)
+{
+	std::wstring w_cmd = Astr2Wstr(cmd);
+	std::wstring w_arg = Astr2Wstr(arg);
+
+	SHELLEXECUTEINFO ShExecInfo;
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = nullptr;
+	ShExecInfo.lpVerb = nullptr;
+	ShExecInfo.lpFile = w_cmd.c_str(); //can be a file as well  
+	ShExecInfo.lpParameters = w_arg.c_str();
+	ShExecInfo.lpDirectory = nullptr;
+	ShExecInfo.nShow = 0;
+	ShExecInfo.hInstApp = nullptr;
+	BOOL ret = ShellExecuteEx(&ShExecInfo);
+	WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
+	DWORD dwCode = 0;
+	GetExitCodeProcess(ShExecInfo.hProcess, &dwCode);
+	if (dwCode)
+		printf("shellExecuteCommand: [%s %s <ErrorCode=%d>] error!\n", cmd.c_str(), arg.c_str(), dwCode);
+	CloseHandle(ShExecInfo.hProcess);
+	return !dwCode;
+}
+#endif
+
+/***************************4.功能类的安全封装***************************/
 namespace AT
 {
 	using second_t = std::chrono::duration<int32_t>;
@@ -302,19 +348,11 @@ namespace AT
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
 	};
 	
-	class Event
-	{//TODO:
-	public:
-		Event() {}
-		~Event() {}
-	private:
-	};
-
-	template<typename T> class safe_stack
+	template<typename T> class SafeStack
 	{
 	public:
-		safe_stack() {}
-		safe_stack(safe_stack const& other) {
+		SafeStack() {}
+		SafeStack(SafeStack const& other) {
 			std::lock_guard<std::mutex> locker(other.stack_lock);
 			stack_data = other.stack_data;
 		}
@@ -368,11 +406,11 @@ namespace AT
 		std::condition_variable stack_cond;
 	};
 
-	template<typename T> class safe_queue
+	template<typename T> class SafeQueue
 	{
 	public:
-		safe_queue() {}
-		safe_queue(safe_queue const& other) {
+		SafeQueue() {}
+		SafeQueue(SafeQueue const& other) {
 			std::lock_guard<std::mutex> locker(other.queue_lock);
 			queue_data = other.queue_data;
 		}
@@ -427,7 +465,7 @@ namespace AT
 	};
 }
 
-/***************************4.具体项目公共资源***************************/
+/***************************4.实体项目公共资源***************************/
 typedef enum STATUS
 {
 	E_INVALID = -1,
@@ -562,7 +600,7 @@ av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 }
 
 static AVFrame*
-rescale(SwsContext **pswsctx, AVFrame*  avframe,
+av_rescale(SwsContext **pswsctx, AVFrame*  avframe,
 	int32_t dst_w, int32_t dst_h, int32_t dst_f)
 {
 	if (nullptr == avframe || nullptr == pswsctx)
@@ -577,7 +615,7 @@ rescale(SwsContext **pswsctx, AVFrame*  avframe,
 		if (nullptr == (*pswsctx = sws_getCachedContext(*pswsctx,
 			src_frame->width, src_frame->height, (AVPixelFormat)src_frame->format,
 			dst_w, dst_h, (AVPixelFormat)dst_f,
-			SWS_FAST_BILINEAR, NULL, NULL, NULL)))
+			SWS_FAST_BILINEAR, nullptr, nullptr, nullptr)))
 			return nullptr;
 		//  2.申请缓存数据. []
 		if (nullptr == (dst_frame = av_v_frame_alloc((AVPixelFormat)dst_f, dst_w, dst_h)))
@@ -590,7 +628,7 @@ rescale(SwsContext **pswsctx, AVFrame*  avframe,
 }
 
 static AVFrame*
-resmple(SwrContext **pswrctx, AVFrame*  avframe,
+av_resmple(SwrContext **pswrctx, AVFrame*  avframe,
 	int32_t dst_s, int32_t dst_n, uint64_t dst_l, int32_t dst_f)
 {
 	if (nullptr == avframe || nullptr == pswrctx)
@@ -715,7 +753,7 @@ av_yuv420p_freep(char* yuv420_data)
 static inline char*
 av_yuv420p_clone(AVFrame *frame)
 {
-	assert(NULL != frame);
+	assert(nullptr != frame);
 	int32_t frame_size = frame->width * frame->height * 3 / 2;
 	char*	frame_data = (char*)calloc(1, frame_size);
 	return av_yuv420p_clone2buffer(frame, frame_data, frame_size);
@@ -724,18 +762,18 @@ av_yuv420p_clone(AVFrame *frame)
 static inline void
 debug_write_alaw(AVFrame *frame)
 {
-	if (NULL == frame)
+	if (nullptr == frame)
 		return;
 
 	char name[128] = {};
 	int32_t bytes_per_sample = av_get_bytes_per_sample((enum AVSampleFormat)frame->format);
 	sprintf(name, "./test_%dx%dx%dx%d_%lld.pcm",
-		frame->sample_rate, frame->channels, frame->nb_samples, bytes_per_sample, time(NULL));
+		frame->sample_rate, frame->channels, frame->nb_samples, bytes_per_sample, time(nullptr));
 
-	static FILE *fp = NULL;
-	if (NULL == fp)
+	static FILE *fp = nullptr;
+	if (nullptr == fp)
 		fp = fopen(name, "wb+");
-	if (NULL == fp)
+	if (nullptr == fp)
 		return;
 
 #if 0
@@ -765,16 +803,16 @@ debug_write_alaw(AVFrame *frame)
 static inline void
 debug_write_420p(AVFrame *frame)
 {
-	if (NULL == frame)
+	if (nullptr == frame)
 		return;
 
 	char name[128] = {};
-	sprintf(name, "./test_%dx%d_%lld.yuv", frame->width, frame->height, time(NULL));
+	sprintf(name, "./test_%dx%d_%lld.yuv", frame->width, frame->height, time(nullptr));
 
-	static FILE *fp = NULL;
-	if (NULL == fp)
+	static FILE *fp = nullptr;
+	if (nullptr == fp)
 		fp = fopen(name, "wb+");
-	if (NULL == fp)
+	if (nullptr == fp)
 		return;
 
 #if 0//剥离AVFrame中的裸数据。
