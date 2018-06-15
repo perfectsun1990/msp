@@ -1,0 +1,47 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+0.[FFMPEG]注册所有的的muxer/demuxer/coder/decoder/protocol/filter.
+	av_register_all();			//只要使用就必须初始化
+	avfilter_register_all();	//打开滤镜效果须初始化
+	avformat_network_init();	//打开网络流必须初始化.
+	
+1.打开输入文件或网络文件（rtmp/rtsp）
+	a. av_format_open_input(&ifmt_ctx, iurl,nullptr,nullptr)	//打开输入文件或流.
+	b. av_find_stream_info(ifmt_ctx, nullptr);					//填充ifmt_ctx详细.
+	c. for (i = 0; i < ifmt_ctx->nb_streams; i++) {				//遍历文件中所有流.
+		AVCodec *dec = avcodec_find_decoder(ifmt_ctx->streams[i]->codecpar->codec_id);
+		AVCodecContext *codec_ctx = avcodec_alloc_context3(dec);
+		avcodec_parameters_to_context(codec_ctx, stream->codecpar);
+		if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO
+			|| codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO ) 
+			avcodec_open2(codec_ctx, dec, NULL);	//基于dec && dec_ctx打开解码器.
+	}
+	d. av_dump_format(ifmt_ctx, 0, iurl, 0);					//输出媒体调试信息.
+2.打开输出文件或网络文件（rtmp/rtsp）
+	
+3.解复用(读取或拉取一帧数据.)
+4.解码
+5.添加滤镜效果
+6.编码
+7.重复用(写入或发送当前帧数据)

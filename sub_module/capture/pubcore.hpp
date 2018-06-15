@@ -87,7 +87,7 @@ typedef enum log_rank{	LOG_ERR, LOG_WAR,	LOG_MSG, LOG_DBG,
 /**
 *@公共的宏函数操作
 */
-const static log_rank_t	rank =	  LOG_MSG;
+#define rank  LOG_MSG;
 //Note: Just use for debug, it must be replaced by log system if used in project.
 #define err( format, ... )do{ if( LOG_ERR <= rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
@@ -321,10 +321,10 @@ namespace AT
 	class Timer
 	{
 	public:
-		Timer() :	   m_begin(  std::chrono::high_resolution_clock::now()) { }
+		Timer() :	   m_begin(std::chrono::high_resolution_clock::now()) { }
 		void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
-		int64_t elapsed(bool s = false) const{ // default milliseconds.
-			if (s) printf("elapsed: %d ms\n", elapsed_milliseconds());
+		int64_t elapsed(bool s = false) const { // default output milliseconds.
+			if (s) printf("elapsed: %d ms", elapsed_milliseconds());
 			return elapsed_milliseconds();
 		}
 		int64_t elapsed_nanoseconds()	const{
@@ -335,6 +335,15 @@ namespace AT
 		}
 		int64_t elapsed_milliseconds()	const{
 			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_seconds()	const{
+			return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_minutes()	const{
+			return std::chrono::duration_cast<std::chrono::minutes>(std::chrono::high_resolution_clock::now() - m_begin).count();
+		}
+		int64_t elapsed_hours()		const{
+			return std::chrono::duration_cast<std::chrono::hours>(std::chrono::high_resolution_clock::now()   - m_begin).count();
 		}
 	private:
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
@@ -547,7 +556,7 @@ av_a_frame_alloc(enum AVSampleFormat smp_fmt,
 	int32_t ret = 0;
 	AVFrame *frame = nullptr;
 	if (!(frame = av_frame_alloc())) {
-		err("av_frame_alloc failed! frame=%p\n", frame);
+		out("av_frame_alloc failed! frame=%p\n", frame);
 		return nullptr;
 	}
 	frame->format		= smp_fmt;
@@ -557,7 +566,7 @@ av_a_frame_alloc(enum AVSampleFormat smp_fmt,
 	frame->channels		= av_get_channel_layout_nb_channels(channel_layout);
 	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
 	{
-		err("av_frame_get_buffer failed! ret=%d\n", ret);
+		out("av_frame_get_buffer failed! ret=%d\n", ret);
 		av_a_frame_freep(&frame);
 		return nullptr;
 	}
@@ -576,7 +585,7 @@ av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 	AVFrame *frame = nullptr;
 	int32_t ret = 0;
 	if (!(frame = av_frame_alloc())) {
-		err("av_frame_alloc failed! frame=%p\n", frame);
+		out("av_frame_alloc failed! frame=%p\n", frame);
 		return nullptr;
 	}
 	frame->format = pix_fmt;
@@ -584,7 +593,7 @@ av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 	frame->height = height;
 	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
 	{/* allocate the buffers for the frame->data[] */
-		err("av_frame_get_buffer failed! ret=%d\n", ret);
+		out("av_frame_get_buffer failed! ret=%d\n", ret);
 		av_v_frame_freep(&frame);
 		return nullptr;
 	}
@@ -655,7 +664,7 @@ av_resmple(SwrContext **pswrctx, AVFrame*  avframe,
 			return nullptr;
 		}
 		if (dst_nb_samples != dst_frame->nb_samples)
-			war("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
+			out("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
 	}
 	return dst_frame;
 }

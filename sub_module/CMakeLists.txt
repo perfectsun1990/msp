@@ -1,6 +1,6 @@
 
 # Handle sub_module directories.
-add_subdirectory(flvparser)
+add_subdirectory(capture)
 add_subdirectory(mplayer)
 add_subdirectory(core)
 #add_subdirectory(json)
