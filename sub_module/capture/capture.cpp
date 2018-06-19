@@ -329,7 +329,9 @@ VideoCapture::start(AVCaptureOpts* cap_sets)
 		camera = std::string("video=") + cap_sets->camera_name;
 		driver = cap_sets->driver;
 	}
-
+	show_CamerInfo();
+	std::cout <<"resolution:" << resolution <<" frame_rate:" <<frame_rate << " pix_format:"  
+		<< pix_format <<" camera:"<< camera << " driver:" << driver << std::endl;
 	std::thread([&]()
 	{
 		m_caputre_quit = false;
@@ -436,12 +438,12 @@ VideoCapture::stopd(void)
 
 int main()
 {
-	int32_t use_index = 0;
+	int32_t use_index = 1;
 	CameraInfoForUsb *pCameraInfo = getCameraInfoForUsb();
 	AVCaptureOpts opts;
 	opts.camera_name = pCameraInfo->nCameraInfo[use_index].cameraName;
 	opts.format_name = pCameraInfo->nCameraInfo[use_index].formatInfo[0].formatName;
-	opts.fps = (int32_t)(1e7 / pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinFrameInterval);
+	opts.fps = (int32_t)(0.5+1e7 / pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinFrameInterval);
 	opts.width = pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinOutputSize.cx;
 	opts.height = pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinOutputSize.cy;
 	opts.driver = "dshow";
