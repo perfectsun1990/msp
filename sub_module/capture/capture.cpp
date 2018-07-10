@@ -329,9 +329,9 @@ VideoCapture::start(AVCaptureOpts* cap_sets)
 		camera = std::string("video=") + cap_sets->camera_name;
 		driver = cap_sets->driver;
 	}
-	show_CamerInfo();
 	std::cout <<"resolution:" << resolution <<" frame_rate:" <<frame_rate << " pix_format:"  
 		<< pix_format <<" camera:"<< camera << " driver:" << driver << std::endl;
+
 	std::thread([&]()
 	{
 		m_caputre_quit = false;
@@ -438,27 +438,31 @@ VideoCapture::stopd(void)
 
 int main()
 {
-	int32_t use_index = 1;
+	int32_t use_index = 0;
 	CameraInfoForUsb *pCameraInfo = getCameraInfoForUsb();
-	AVCaptureOpts opts;
-	opts.camera_name = pCameraInfo->nCameraInfo[use_index].cameraName;
-	opts.format_name = pCameraInfo->nCameraInfo[use_index].formatInfo[0].formatName;
-	opts.fps = (int32_t)(0.5+1e7 / pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinFrameInterval);
-	opts.width = pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinOutputSize.cx;
-	opts.height = pCameraInfo->nCameraInfo[use_index].formatInfo[0].caps.MinOutputSize.cy;
-	opts.driver = "dshow";
+	show_CamerInfo();
 	AT::Timer timer;
 	VideoCapture capture;
-	for (int i=0;i<2; ++i)
+LOOP:
+	printf("Please input an index of camera: ");
+	scanf("%d", &use_index);
+	for (int i=0;i<pCameraInfo->nCameraInfo[use_index].formatInfo.size(); ++i)
 	{
+		AVCaptureOpts opts;
+		opts.camera_name = pCameraInfo->nCameraInfo[use_index].cameraName;
+		opts.format_name = pCameraInfo->nCameraInfo[use_index].formatInfo[0].formatName;
+		opts.fps = (int32_t)(0.5 + 1e7 / pCameraInfo->nCameraInfo[use_index].formatInfo[i].caps.MinFrameInterval);
+		opts.width = pCameraInfo->nCameraInfo[use_index].formatInfo[i].caps.MaxOutputSize.cx;
+		opts.height = pCameraInfo->nCameraInfo[use_index].formatInfo[i].caps.MaxOutputSize.cy;
+		opts.driver = "dshow";
 		bool ret = capture.start(&opts);
 		printf("@@@ start caputre.... ret = %d\n", ret);
 		std::this_thread::sleep_for(std::chrono::seconds(3));
 		capture.stopd();
-		std::this_thread::sleep_for(std::chrono::seconds(3));
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
-	bool ret = capture.start(nullptr);
 	timer.elapsed(true);
+	goto LOOP;
 	system("pause");
 	return 0;
 }
