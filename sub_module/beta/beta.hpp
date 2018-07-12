@@ -6,9 +6,9 @@
 #include <queue>
 #include <atomic>
 #include <future>
-//#include <condition_variable>
-//#include <thread>
-//#include <functional>
+#include <condition_variable>
+#include <thread>
+#include <functional>
 #include <stdexcept>
 
 namespace std
@@ -24,11 +24,10 @@ namespace std
 		using Task = function<void()>;	//定义类型
 		vector<thread> _pool;			//线程池
 		queue<Task> _tasks;             //任务队列
-		mutex _lock;                    //同步
-		condition_variable _task_cv;    //条件阻塞
+		mutex _lock;                    //互斥
+		condition_variable _task_cv;    //同步
 		atomic<bool> _run{ true };      //线程池是否执行
 		atomic<int>  _idlThrNum{ 0 };   //空闲线程数量
-
 	public:
 		inline threadpool(unsigned short size = 4) { addThread(size); }
 		inline ~threadpool()
