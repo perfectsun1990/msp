@@ -313,15 +313,15 @@ ShellExec(std::string cmd, std::string arg, bool is_show)
 /***************************4.功能类的安全封装***************************/
 namespace AT
 {
-	using second_t = std::chrono::duration<int32_t>;
-	using millis_t = std::chrono::duration<int32_t, std::milli>;
-	using micros_t = std::chrono::duration<int32_t, std::micro>;
-	using nanosd_t = std::chrono::duration<int32_t, std::nano >;
+	using second_t = std::chrono::duration<long long>;
+	using millis_t = std::chrono::duration<long long, std::milli>;
+	using micros_t = std::chrono::duration<long long, std::micro>;
+	using nanosd_t = std::chrono::duration<long long, std::nano >;
 
 	class Timer
 	{
 	public:
-		Timer() :	   m_begin(std::chrono::high_resolution_clock::now()) { }
+		Timer() :	   m_begin(	 std::chrono::high_resolution_clock::now()) { }
 		void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
 		int64_t elapsed(bool s = false) const { // default output milliseconds.
 			if (s) printf("elapsed: %d ms", elapsed_milliseconds());
@@ -335,15 +335,6 @@ namespace AT
 		}
 		int64_t elapsed_milliseconds()	const{
 			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-		}
-		int64_t elapsed_seconds()	const{
-			return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-		}
-		int64_t elapsed_minutes()	const{
-			return std::chrono::duration_cast<std::chrono::minutes>(std::chrono::high_resolution_clock::now() - m_begin).count();
-		}
-		int64_t elapsed_hours()		const{
-			return std::chrono::duration_cast<std::chrono::hours>(std::chrono::high_resolution_clock::now()   - m_begin).count();
 		}
 	private:
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
