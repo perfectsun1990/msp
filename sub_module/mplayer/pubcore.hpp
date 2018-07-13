@@ -81,23 +81,36 @@ extern "C"
 #endif
 
 /***************************2.公用函数或宏封装***************************/
-typedef enum log_rank{	LOG_ERR, LOG_WAR,	LOG_MSG, LOG_DBG,
-}log_rank_t;
+typedef enum log_rank{	LOG_ERR, LOG_WAR, LOG_MSG, LOG_DBG,}log_rank_t;
+//#define USE_DEBUG_LOG
 
 /**
 *@公共的宏函数操作
 */
-const static log_rank_t	rank =	  LOG_MSG;
+const static log_rank_t	_log_rank =	  LOG_MSG;
+
+#ifndef USE_DEBUG_LOG
+#define err( format, ... )do{ if( LOG_ERR <= _log_rank )\
+	av_log(nullptr, AV_LOG_ERROR, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define war( format, ... )do{ if( LOG_WAR <= _log_rank )\
+	av_log(nullptr, AV_LOG_WARNING, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define msg( format, ... )do{ if( LOG_MSG <= _log_rank )\
+	av_log(nullptr, AV_LOG_INFO, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define dbg( format, ... )do{ if( LOG_DBG <= _log_rank )\
+	av_log(nullptr, AV_LOG_DEBUG,"[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define out( format, ... )do{ av_log(nullptr, AV_LOG_WARNING, format, ##__VA_ARGS__); }while(0)
+#else
 //Note: Just use for debug, it must be replaced by log system if used in project.
-#define err( format, ... )do{ if( LOG_ERR <= rank )\
+#define err( format, ... )do{ if( LOG_ERR <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define war( format, ... )do{ if( LOG_WAR <= rank )\
+#define war( format, ... )do{ if( LOG_WAR <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define msg( format, ... )do{ if( LOG_MSG <= rank )\
+#define msg( format, ... )do{ if( LOG_MSG <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define dbg( format, ... )do{ if( LOG_DBG <= rank )\
+#define dbg( format, ... )do{ if( LOG_DBG <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 #define out( format, ... )do{ fprintf(stderr, format, ##__VA_ARGS__); }while(0)
+#endif
 
 #define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
 #define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF )           // 获取x的(n~n+07)位
@@ -132,9 +145,9 @@ StrSplits(std::string str, std::string pattern)
 	std::string::size_type pos;
 	std::vector<std::string> result;
 	str += pattern;//扩展字符串以方便操作
-	int size = str.size();
+	size_t size = str.size();
 
-	for (int i = 0; i < size; i++)
+	for (size_t i = 0; i < size; i++)
 	{
 		pos = str.find(pattern, i);
 		if (pos < size)
@@ -324,7 +337,7 @@ namespace AT
 		Timer() :	   m_begin(  std::chrono::high_resolution_clock::now()) { }
 		void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
 		int64_t elapsed(bool s = false) const{ // default milliseconds.
-			if (s) printf("elapsed: %d ms\n", elapsed_milliseconds());
+			if (s) printf("elapsed: %lld ms\n", elapsed_milliseconds());
 			return elapsed_milliseconds();
 		}
 		int64_t elapsed_nanoseconds()	const{

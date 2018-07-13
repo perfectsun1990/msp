@@ -1,16 +1,16 @@
 ﻿
 /*************************************************************************
- * Copyright (C), 1990-2020, Tech.Co., Ltd. All rights reserved.
- * @file   : pubcore.hpp
- * @author : sun
- * @mail   : perfectsun1990@163.com 
- * @version: v1.0.0
- * @date   : 2016年05月20日 星期二 11时57分04秒 
- *-----------------------------------------------------------------------
- * @detail : 公共模块
- * @         功能:加载系统依赖接口、全局变量、宏及控制/通信协议.
- ************************************************************************/
- 
+* Copyright (C), 1990-2020, Tech.Co., Ltd. All rights reserved.
+* @file   : pubcore.hpp
+* @author : sun
+* @mail   : perfectsun1990@163.com
+* @version: v1.0.0
+* @date   : 2016年05月20日 星期二 11时57分04秒
+*-----------------------------------------------------------------------
+* @detail : 公共模块
+* @         功能:加载系统依赖接口、全局变量、宏及控制/通信协议.
+************************************************************************/
+
 #pragma  once
 
 /***************************1.公用系统文件集合***************************/
@@ -81,23 +81,36 @@ extern "C"
 #endif
 
 /***************************2.公用函数或宏封装***************************/
-typedef enum log_rank{	LOG_ERR, LOG_WAR,	LOG_MSG, LOG_DBG,
-}log_rank_t;
+typedef enum log_rank { LOG_ERR, LOG_WAR, LOG_MSG, LOG_DBG, }log_rank_t;
+//#define USE_DEBUG_LOG
 
 /**
 *@公共的宏函数操作
 */
-#define rank  LOG_MSG;
+const static log_rank_t	_log_rank = LOG_MSG;
+
+#ifndef USE_DEBUG_LOG
+#define err( format, ... )do{ if( LOG_ERR <= _log_rank )\
+	av_log(nullptr, AV_LOG_ERROR, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define war( format, ... )do{ if( LOG_WAR <= _log_rank )\
+	av_log(nullptr, AV_LOG_WARNING, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define msg( format, ... )do{ if( LOG_MSG <= _log_rank )\
+	av_log(nullptr, AV_LOG_INFO, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define dbg( format, ... )do{ if( LOG_DBG <= _log_rank )\
+	av_log(nullptr, AV_LOG_DEBUG,"[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
+#define out( format, ... )do{ av_log(nullptr, AV_LOG_WARNING, format, ##__VA_ARGS__); }while(0)
+#else
 //Note: Just use for debug, it must be replaced by log system if used in project.
-#define err( format, ... )do{ if( LOG_ERR <= rank )\
+#define err( format, ... )do{ if( LOG_ERR <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define war( format, ... )do{ if( LOG_WAR <= rank )\
+#define war( format, ... )do{ if( LOG_WAR <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define msg( format, ... )do{ if( LOG_MSG <= rank )\
+#define msg( format, ... )do{ if( LOG_MSG <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
-#define dbg( format, ... )do{ if( LOG_DBG <= rank )\
+#define dbg( format, ... )do{ if( LOG_DBG <= _log_rank )\
 	fprintf(stderr, "[<%s>:%d] " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);}while(0)
 #define out( format, ... )do{ fprintf(stderr, format, ##__VA_ARGS__); }while(0)
+#endif
 
 #define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
 #define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF )           // 获取x的(n~n+07)位
@@ -116,8 +129,8 @@ typedef enum log_rank{	LOG_ERR, LOG_WAR,	LOG_MSG, LOG_DBG,
 #define FREESIZE(s)					( sizeof(s)- strlen(s)-1 )
 
 /**
- *@字符串集常用操作
- */
+*@字符串集常用操作
+*/
 
 static inline bool
 StrEffect(const char* dev_name)
@@ -171,31 +184,31 @@ StrReplace(std::string strSrc,
 */
 #ifdef WIN32
 /**
- *@Note:
- *@iCharNums 标识字符或宽字符个数,而非字节个数.
- *@所以确保size和目标datas的类型一致且大小足够.
- */
+*@Note:
+*@iCharNums 标识字符或宽字符个数,而非字节个数.
+*@所以确保size和目标datas的类型一致且大小足够.
+*/
 static inline int32_t
 Utf82Unic(const char* utf8, wchar_t* unic, int32_t size)
 {
 	if (!utf8 || !strlen(utf8) || !unic || size <= 0)
 		return 0;
 	wmemset(unic, 0, size);			//Note: F1  details.
-	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0, 
+	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0,
 		utf8, -1, nullptr, 0);
 	if (iCharNums > size)	return 0;
 	MultiByteToWideChar(CP_UTF8, 0,	//Covt: utf8->utf16
-		 utf8, -1, unic, iCharNums);
+		utf8, -1, unic, iCharNums);
 	return iCharNums;
 }
 
 static inline int32_t
 Unic2Utf8(const wchar_t* unic, char* utf8, int32_t size)
 {
-	if ( !unic || !wcslen(unic) || !utf8 || size <= 0)
+	if (!unic || !wcslen(unic) || !utf8 || size <= 0)
 		return 0;
 	memset(utf8, 0, size);			//Note: F1  details.
-	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0, 
+	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0,
 		unic, -1, nullptr, 0, nullptr, nullptr);
 	if (iCharNums > size)	return 0;
 	WideCharToMultiByte(CP_UTF8, 0, //Covt: utf16->utf8
@@ -210,7 +223,7 @@ Ansi2Unic(const char* ansi, wchar_t* unic, int32_t size)
 		return 0;
 	wmemset(unic, 0, size);			//Note: F1  details.
 	int32_t iCharNums = MultiByteToWideChar(CP_ACP, 0,
-		ansi, -1, nullptr, 0);		
+		ansi, -1, nullptr, 0);
 	if (iCharNums > size)	return 0;
 	MultiByteToWideChar(CP_ACP, 0, 	//Covt: ansi->utf16
 		ansi, -1, unic, iCharNums);
@@ -235,7 +248,7 @@ static inline int32_t
 Ansi2Utf8(const char *ansi, char* utf8, int32_t size)
 {
 	memset(utf8, 0, size);			//Note: F1  details.
-	int32_t  iSize = strlen(ansi)+1;
+	int32_t  iSize = strlen(ansi) + 1;
 	wchar_t* pUnic = new wchar_t[iSize];
 	if (nullptr == pUnic)	goto handle_error;
 	int32_t iCharNums = Ansi2Unic(ansi, pUnic, iSize);
@@ -313,33 +326,33 @@ ShellExec(std::string cmd, std::string arg, bool is_show)
 /***************************4.功能类的安全封装***************************/
 namespace AT
 {
-	using second_t = std::chrono::duration<long long>;
-	using millis_t = std::chrono::duration<long long, std::milli>;
-	using micros_t = std::chrono::duration<long long, std::micro>;
-	using nanosd_t = std::chrono::duration<long long, std::nano >;
+	using second_t = std::chrono::duration<int32_t>;
+	using millis_t = std::chrono::duration<int32_t, std::milli>;
+	using micros_t = std::chrono::duration<int32_t, std::micro>;
+	using nanosd_t = std::chrono::duration<int32_t, std::nano >;
 
 	class Timer
 	{
 	public:
-		Timer() :	   m_begin(	 std::chrono::high_resolution_clock::now()) { }
+		Timer() : m_begin(std::chrono::high_resolution_clock::now()) { }
 		void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
-		int64_t elapsed(bool s = false) const { // default output milliseconds.
-			if (s) printf("elapsed: %d ms", elapsed_milliseconds());
+		int64_t elapsed(bool s = false) const { // default milliseconds.
+			if (s) printf("elapsed: %d ms\n", elapsed_milliseconds());
 			return elapsed_milliseconds();
 		}
-		int64_t elapsed_nanoseconds()	const{
-			return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now()  - m_begin).count();
+		int64_t elapsed_nanoseconds()	const {
+			return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
 		}
-		int64_t elapsed_microseconds()	const{
+		int64_t elapsed_microseconds()	const {
 			return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
 		}
-		int64_t elapsed_milliseconds()	const{
+		int64_t elapsed_milliseconds()	const {
 			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
 		}
 	private:
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
 	};
-	
+
 	template<typename T> class SafeStack
 	{
 	public:
@@ -475,12 +488,12 @@ typedef enum STATUS
 typedef enum PROPTS
 {
 	P_MINP = -1,
-	P_BEGP, 
+	P_BEGP,
 	P_SEEK,
 	P_PAUS,
 	P_ENDP,
 	//...
-	P_MAXP = sizeof(int64_t)*8,
+	P_MAXP = sizeof(int64_t) * 8,
 }PROPTS;
 
 #define SET_PROPERTY(x,y)						BSET(x,y)
@@ -506,10 +519,10 @@ struct MPacket
 		av_packet_free(&ppkt);
 	}
 	int32_t				type{ -1 };//audio or video media type.
-	int64_t				prop{  0 };//specif prop, such as seek.
-	AVRational			sttb{  0 };//av_stream->timebase.
-	double				upts{  0 };//user pts in second.<maybe disorder for video>
-	AVRational			ufps{  0 };//user fps.eg.25.	
+	int64_t				prop{ 0 };//specif prop, such as seek.
+	AVRational			sttb{ 0 };//av_stream->timebase.
+	double				upts{ 0 };//user pts in second.<maybe disorder for video>
+	AVRational			ufps{ 0 };//user fps.eg.25.	
 	AVCodecParameters*	pars{ nullptr };
 	AVPacket* 			ppkt{ nullptr };
 };
@@ -527,9 +540,9 @@ struct MRframe
 		av_frame_free(&pfrm);
 	}
 	int32_t				type{ -1 };//audio or video media type.
-	int64_t				prop{  0 };//specif prop, such as seek.
-	AVRational			sttb{  0 };//av_codec->timebase.
-	double				upts{  0 };//user pts in second.<must be orderly>
+	int64_t				prop{ 0 };//specif prop, such as seek.
+	AVRational			sttb{ 0 };//av_codec->timebase.
+	double				upts{ 0 };//user pts in second.<must be orderly>
 	AVCodecParameters*	pars{ nullptr };
 	AVFrame* 			pfrm{ nullptr };
 };
@@ -547,17 +560,17 @@ av_a_frame_alloc(enum AVSampleFormat smp_fmt,
 	int32_t ret = 0;
 	AVFrame *frame = nullptr;
 	if (!(frame = av_frame_alloc())) {
-		out("av_frame_alloc failed! frame=%p\n", frame);
+		err("av_frame_alloc failed! frame=%p\n", frame);
 		return nullptr;
 	}
-	frame->format		= smp_fmt;
-	frame->sample_rate	= sample_rate;
-	frame->nb_samples	= nb_samples;
+	frame->format = smp_fmt;
+	frame->sample_rate = sample_rate;
+	frame->nb_samples = nb_samples;
 	frame->channel_layout = channel_layout;
-	frame->channels		= av_get_channel_layout_nb_channels(channel_layout);
+	frame->channels = av_get_channel_layout_nb_channels(channel_layout);
 	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
 	{
-		out("av_frame_get_buffer failed! ret=%d\n", ret);
+		err("av_frame_get_buffer failed! ret=%d\n", ret);
 		av_a_frame_freep(&frame);
 		return nullptr;
 	}
@@ -576,15 +589,15 @@ av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 	AVFrame *frame = nullptr;
 	int32_t ret = 0;
 	if (!(frame = av_frame_alloc())) {
-		out("av_frame_alloc failed! frame=%p\n", frame);
+		err("av_frame_alloc failed! frame=%p\n", frame);
 		return nullptr;
 	}
 	frame->format = pix_fmt;
-	frame->width  = width;
+	frame->width = width;
 	frame->height = height;
 	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
 	{/* allocate the buffers for the frame->data[] */
-		out("av_frame_get_buffer failed! ret=%d\n", ret);
+		err("av_frame_get_buffer failed! ret=%d\n", ret);
 		av_v_frame_freep(&frame);
 		return nullptr;
 	}
@@ -613,7 +626,7 @@ av_rescale(SwsContext **pswsctx, AVFrame*  avframe,
 		if (nullptr == (dst_frame = av_v_frame_alloc((AVPixelFormat)dst_f, dst_w, dst_h)))
 			return nullptr;
 		//  3.进行图像转换. [0-from begin]
-		if (sws_scale(*pswsctx, (const uint8_t* const*)src_frame->data, src_frame->linesize, 0, dst_frame->height, dst_frame->data, dst_frame->linesize) <=0 )
+		if (sws_scale(*pswsctx, (const uint8_t* const*)src_frame->data, src_frame->linesize, 0, dst_frame->height, dst_frame->data, dst_frame->linesize) <= 0)
 			av_v_frame_freep(&dst_frame);//inner reset dst_frame = nullptr;
 	}
 	return dst_frame;
@@ -655,7 +668,7 @@ av_resmple(SwrContext **pswrctx, AVFrame*  avframe,
 			return nullptr;
 		}
 		if (dst_nb_samples != dst_frame->nb_samples)
-			out("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
+			war("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
 	}
 	return dst_frame;
 }

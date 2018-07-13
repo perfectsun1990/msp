@@ -450,7 +450,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			err( "Couldn't create texture for video!:%s!\n", SDL_GetError());
 			return false;
 		}
-		SDL_Log("@@@ Open Video device success! display=%s window_id= 0x%x (0-default)\n",
+		out("@@@ Open Video device success! display=%s window_id= 0x%x (0-default)\n",
 			m_config->window_disp.c_str(),(long)m_window);
 	}
 
@@ -784,7 +784,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 
 		// 4.启动音频渲染设备.
 		SDL_PauseAudioDevice(m_audio_devID, 0);
-		SDL_Log("@@@ Open Audio device success! speaker[id=%d]=%s status=%d (1-playing)\n",
+		out("@@@ Open Audio device success! speaker[id=%d]=%s status=%d (1-playing)\n",
 			m_audio_devID, m_config->speakr_name.c_str(), SDL_GetAudioDeviceStatus(m_audio_devID));
 	}
 

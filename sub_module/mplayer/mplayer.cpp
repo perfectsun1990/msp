@@ -213,11 +213,12 @@ int32_t main(int32_t argc, char *argv[])
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
 		mp1->start();
-		mp2->start();
+	//	mp2->start();
 #if 0// 3 reopen thread_safe test
 		for (int32_t i=0 ;i<5; ++i)
 		{
-			mp1->stopd();			
+			mp1->stopd();
+			std::this_thread::sleep_for(std::chrono::seconds(3));
 			mp1->start();
 			mp2->stopd();
 			mp2->start();
