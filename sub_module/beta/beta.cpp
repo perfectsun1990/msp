@@ -7,7 +7,7 @@
 int gfunBlock(int slp)
 {
 	//printf("%s execute!  thrid=%d\n",__FUNCTION__, std::this_thread::get_id());
-	std::this_thread::sleep_for(std::chrono::seconds(1000));
+	std::this_thread::sleep_for(std::chrono::seconds(5));
 	return  slp;
 }
 
@@ -46,9 +46,9 @@ int main()
 #define  MAX_THREADS_NUM   16
 
 	// 创建线程池，指定最大线程数.
-	std::threadpool thr_pool{ MAX_THREADS_NUM };
+	thrpool thr_pool{ MAX_THREADS_NUM };
 	
-	std::cout << " =======  begin all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idlCount() << std::endl;
+	std::cout << " =======  begin all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
 
 	// 调用全局函数，仿函数，Lamada表达式.
 	std::future<int> ff = thr_pool.commit(gfun, 0);
@@ -77,23 +77,23 @@ int main()
 
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-	std::cout << "\n=======  beg commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idlCount() << std::endl;
+	std::cout << "\n=======  beg commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
 	std::vector< std::future<int> > results;
 	for (int i = 0; i < MAX_THREADS_NUM+8; i++) 
 	{
-		results.emplace_back(std::move(thr_pool.commit(gfunBlock, i * 100)));
-		int idle = thr_pool.idlCount();
-		std::cout << "# thrCount=" << thr_pool.thrCount() << " idlCount=" << idle;
+		results.emplace_back(std::move(thr_pool.commit(gfunBlock, i)));
+		int idle = thr_pool.idleCount();
+		std::cout << "# thrsCount=" << thr_pool.thrsCount() << " idleCount=" << idle;
 		if (idle == 0) std::cout << "-->Task link up: No idle threads!";
 		std::cout << std::endl;
 	}
-	std::cout << " =======  end commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idlCount() << std::endl;
-#if 0// 获取返回值 将会阻塞当前线程直到指定等待的线程结束。.
+	std::cout << " =======  end commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
+#if 1// 获取返回值 将会阻塞当前线程直到指定等待的线程结束。.
 	for (auto && result : results)
 	std::cout << result.get() << ' ';
 	std::cout << std::endl;
 #endif
-	std::cout << " =======  finish all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idlCount() << std::endl;
+	std::cout << " =======  finish all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
 	system("pause");
 	return 0;
 }
