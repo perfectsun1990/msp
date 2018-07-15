@@ -326,10 +326,10 @@ ShellExec(std::string cmd, std::string arg, bool is_show)
 /***************************4.功能类的安全封装***************************/
 namespace AT
 {
-	using second_t = std::chrono::duration<int32_t>;
-	using millis_t = std::chrono::duration<int32_t, std::milli>;
-	using micros_t = std::chrono::duration<int32_t, std::micro>;
-	using nanosd_t = std::chrono::duration<int32_t, std::nano >;
+	using second_t = std::chrono::duration<long long>;
+	using millis_t = std::chrono::duration<long long, std::milli>;
+	using micros_t = std::chrono::duration<long long, std::micro>;
+	using nanosd_t = std::chrono::duration<long long, std::nano >;
 
 	class Timer
 	{
