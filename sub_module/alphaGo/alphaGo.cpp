@@ -1,5 +1,5 @@
 ﻿
-#include "beta.hpp"
+#include "alphaGo.hpp"
 #include <iostream>
 #include <windows.h>
 

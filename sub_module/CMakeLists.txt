@@ -8,7 +8,7 @@ add_subdirectory(mempool)
 add_subdirectory(lfqueue)
 add_subdirectory(thrdspool)
 add_subdirectory(alphaGo)
-add_subdirectory(jsoncpp)
+add_subdirectory(jansson)
 
 
 
