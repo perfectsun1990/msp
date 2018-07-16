@@ -1,5 +1,5 @@
 ﻿
-#include "alphaGo.hpp"
+#include "thrdspool.hpp"
 #include <iostream>
 #include <windows.h>
 
