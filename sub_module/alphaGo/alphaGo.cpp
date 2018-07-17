@@ -1,99 +1,134 @@
 ﻿
 #include "alphaGo.hpp"
 #include <iostream>
-#include <windows.h>
+using namespace std;
 
 
-int gfunBlock(int slp)
+template<class T> class MemPool
 {
-	//printf("%s execute!  thrid=%d\n",__FUNCTION__, std::this_thread::get_id());
-	std::this_thread::sleep_for(std::chrono::seconds(5));
-	return  slp;
-}
+	struct MemNode
+	{//作为分配节点存在，每个节点默认管理32*sizeof(T)的内存。
+		void* _memPoint; //内存指针
+		MemNode* _next;  //下一节点，和当前节点拥有一样的 对象大小*对象个数 的内存块。
+		size_t _itemNum; //对象个数，_itemSize是动态推测出来的。
 
-int gfun(int slp)
-{
-	printf("%s execute!  thrid=%d\n", __FUNCTION__, std::this_thread::get_id());
-	return  slp;
-}
-struct gfunClass 
-{
-	int operator()(int n) {
-		printf("%s execute!  thrid=%d\n", __FUNCTION__, std::this_thread::get_id());
-		return 42;
+		MemNode(size_t itemNum) : _itemNum(itemNum), _next(NULL){
+			_memPoint = malloc(sizeof(T) * _itemNum);
+		}
+		~MemNode(){
+			free(_memPoint);
+			_memPoint = NULL;
+			_next = NULL;
+		}
+	};
+protected:
+	size_t _countIn;
+	MemNode* _first;
+	MemNode* _last;
+	size_t _maxNum;			//the max size for one block
+	T* _lastDelete;
+protected:
+	size_t _GetMemSize()
+	{
+		if (_last->_itemNum * 2 > _maxNum)
+			return _maxNum;
+		else
+			return _last->_itemNum * 2;
+	}
+public:
+	MemPool(size_t initNum = 32, size_t maxNum = 10000) : _maxNum(maxNum), _countIn(0), _lastDelete(NULL)
+	{
+		_first = _last = new MemNode(initNum);
+	}
+	~MemPool()
+	{
+		MemNode* cur = _first;
+		while (cur)
+		{
+			MemNode* del = cur;
+			cur = cur->_next;
+			delete del;
+		}
+		_first = _last = NULL;
+		if (_lastDelete)
+			cout << "has ever destroy memory and not used" << endl;
+		_lastDelete = NULL;
+	}
+
+	template<typename... Args> T* New(Args&&... args)
+	{
+		T* obj = NULL;
+		if (_lastDelete){
+			obj = _lastDelete;
+			_lastDelete = *(T**)(_lastDelete);
+			return new(obj)T;
+		}else{
+			if (_countIn >= _last->_itemNum)
+			{
+				MemNode* tmp = new MemNode(_GetMemSize());//申请的节点块的默认对象个数。其实就是初始还时的对象个数，。
+				_last->_next = tmp;
+				_last = tmp;
+				_countIn = 0;
+			}
+			obj = (T*)((char*)_last->_memPoint + sizeof(T)*_countIn);
+			_countIn++;
+			return new(obj)T(std::forward<Args>(args)...);
+		}
+	}
+	void Delete(T* del)
+	{
+		if (del == NULL)
+			return;
+		*(T**)del = _lastDelete;
+		_lastDelete = del;
 	}
 };
 
-class A {    //函数必须是 static 的才能使用线程池
-public:
-	static int Afun(int n = 0) {
-		printf("%s execute!  thrid=%d, n=%d\n", __FUNCTION__, std::this_thread::get_id(), n);
-		return n;
+//#include "MemoryPool.h"
+#include <vector>
+struct test
+{
+	test() {
+		cout << "test..." << endl;
 	}
-
-	static std::string Bfun(int n, std::string str, char c) {
-		printf("%s execute!  thrid=%d, n=%d str=%s c=%c\n", __FUNCTION__, std::this_thread::get_id(), n, str.c_str(),c);
-		return str;
+	test(int a):v(a) {
+		cout << "testa..." << v << endl;
 	}
-	int Cfun(int n = 0) {
-		printf("%s execute!  thrid=%d, n=%d\n", __FUNCTION__, std::this_thread::get_id(), n);
-		return n;
-	}
+	int v;
 };
 
 int main()
 {
-#define  MAX_THREADS_NUM   16
-
-	// 创建线程池，指定最大线程数.
-	thrpool thr_pool{ MAX_THREADS_NUM };
-	
-	std::cout << " =======  begin all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
-
-	// 调用全局函数，仿函数，Lamada表达式.
-	std::future<int> ff = thr_pool.commit(gfun, 0);
-	std::future<int> fg = thr_pool.commit(gfunClass(), 0);
-	std::future<std::string> fh = thr_pool.commit([&]()->std::string 
+	std::vector<test*> v;
+	MemPool<test> mp;
+#if 1
+	int i;
+	test* tmp;
+	for (i = 0; i < 10; i++)
 	{
-		printf("%s execute!  thrid=%d\n", __FUNCTION__, std::this_thread::get_id());
-		return "fh test string";
-	});
-
-	// 调用类成员函数
-	A a;
-	std::future<int> gg = thr_pool.commit(std::bind(&A::Cfun, &a, 9999)); 	
-	std::future<std::string> gh = thr_pool.commit(A::Bfun, 6666, "gh test string", 'B');
-	std::future<int> gi = thr_pool.commit(std::bind(&A::Afun, 1000)); 
-	std::future<int> gj = thr_pool.commit(std::bind(a.Afun, 400)); //IDE提示错误,但可以编译运行
-
-	// 获取返回值，
-	// 注意阻塞的函数，因为调用.get()获取返回值会等待线程执行完,此时调用get()会导致主程序阻塞。
-	auto ret = gg.get();
-	std::cout << "returm gg=" << ret << std::endl;
-	std::cout << "returm gh=" << gh.get().c_str() << std::endl;
-	std::cout << "returm fh=" << fh.get().c_str() << std::endl;
-
-	thr_pool.commit(gfun, 8888).get();    //调用.get()获取返回值会等待线程执行完,
-
-	std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-	std::cout << "\n=======  beg commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
-	std::vector< std::future<int> > results;
-	for (int i = 0; i < MAX_THREADS_NUM+8; i++) 
-	{
-		results.emplace_back(std::move(thr_pool.commit(gfunBlock, i)));
-		int idle = thr_pool.idleCount();
-		std::cout << "# thrsCount=" << thr_pool.thrsCount() << " idleCount=" << idle;
-		if (idle == 0) std::cout << "-->Task link up: No idle threads!";
-		std::cout << std::endl;
+		tmp = mp.New(i);
+		cout << "create : " << tmp << endl;
+		v.push_back(tmp);
 	}
-	std::cout << " =======  end commit all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
-#if 1// 获取返回值 将会阻塞当前线程直到指定等待的线程结束。.
-	for (auto && result : results)
-	std::cout << result.get() << ' ';
-	std::cout << std::endl;
+	cout << "===============================================" << endl;
+	for (i = 0; i < 5; i++)
+	{
+		tmp = v.back();
+		cout << "destroy : " << tmp << endl;
+		mp.Delete(tmp);
+		v.pop_back();
+	}
+	cout << "===============================================" << endl;
+	for (i = 0; i < 5; i++)
+	{
+		cout << "CREAT SUCCESSFUL" << endl;
+		tmp = mp.New();
+		cout << "creat : " << tmp << endl;
+		v.push_back(tmp);
+	}
+	cout << "===============================================" << endl;
+	cout << v.size() << endl;
 #endif
-	std::cout << " =======  finish all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
 	system("pause");
 	return 0;
 }
