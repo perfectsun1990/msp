@@ -1,7 +1,6 @@
 ﻿
 #include "thrdspool.hpp"
 #include <iostream>
-#include <windows.h>
 
 
 int gfunBlock(int slp)

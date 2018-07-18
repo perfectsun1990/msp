@@ -34,7 +34,7 @@ protected:
 protected:
 	static inline size_t itemSize() {
 		static size_t _itemSize = (sizeof(T) > sizeof(void*)) ? sizeof(T) : sizeof(void*);
-		std::cout << _itemSize << std::endl;
+		//std::cout << _itemSize << std::endl;
 		return _itemSize;
 	}
 	size_t _GetMemSize()

@@ -1,6 +1,14 @@
 ﻿
 #include "mempool.hpp"
 #include <vector>
+#include <vector>
+#include <queue>
+#include <atomic>
+#include <future>
+#include <condition_variable>
+#include <thread>
+#include <functional>
+#include <stdexcept>
 
 struct OBJ_1
 {
@@ -20,11 +28,14 @@ struct OBJ_2
 };
 int main()
 {
+	//临时变量
 	MemPool<OBJ_2> mpool;// ok
-
 	std::vector<OBJ_1*> obj_table;
-	MemPool<OBJ_1> *pool = new MemPool<OBJ_1>(2);
-
+	//基本指针
+	MemPool<OBJ_1> *pmp = new MemPool<OBJ_1>(2);
+	delete pmp;
+	//智能指针，推荐使用！
+	std::shared_ptr<MemPool<OBJ_1>> pool = std::make_shared<MemPool<OBJ_1>>(128);
 #if 1
 #define TEST_OBJ_NUMS 8
 	OBJ_1* obj_tmp = nullptr;
@@ -49,7 +60,7 @@ int main()
 	}
 	std::cout << "===============================================" << std::endl;
 	std::cout << obj_table.size() << std::endl;
-	delete pool;
+	
 #endif
 
 	system("pause");
