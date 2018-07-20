@@ -1,7 +1,7 @@
 ﻿
 #include "thrdspool.hpp"
 #include <iostream>
-
+#include <queue>
 
 int gfunBlock(int slp)
 {
@@ -12,7 +12,7 @@ int gfunBlock(int slp)
 
 int gfun(int slp)
 {
-	printf("%s execute!  thrid=%d\n", __FUNCTION__, std::this_thread::get_id());
+	printf("%s execute! value=%d thrid=%d\n", __FUNCTION__, slp, std::this_thread::get_id());
 	return  slp;
 }
 struct gfunClass 
@@ -29,24 +29,45 @@ public:
 		printf("%s execute!  thrid=%d, n=%d\n", __FUNCTION__, std::this_thread::get_id(), n);
 		return n;
 	}
-
 	static std::string Bfun(int n, std::string str, char c) {
 		printf("%s execute!  thrid=%d, n=%d str=%s c=%c\n", __FUNCTION__, std::this_thread::get_id(), n, str.c_str(),c);
 		return str;
 	}
 	int Cfun(int n = 0) {
 		printf("%s execute!  thrid=%d, n=%d\n", __FUNCTION__, std::this_thread::get_id(), n);
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 		return n;
 	}
 };
+void StrFun(std::string str)
+{
+	std::this_thread::sleep_for(std::chrono::seconds(5));
+	std::cout << "callback: str=" << str.c_str()
+		<< " thr_id:" << std::this_thread::get_id() << std::endl;
+}
 
 int main()
 {
 #define  MAX_THREADS_NUM   16
-
-	// 创建线程池，指定最大线程数.
-	thrpool thr_pool{ MAX_THREADS_NUM };
+#if 1
+	ThrPool thr_pool;
 	
+	std::thread([&thr_pool]() {
+		
+	}).detach();
+	
+	// Test 1
+	CallBack<void(std::string)> callback(StrFun, "1111 handle over!") ;
+	thr_pool.post(std::bind(gfun, 1111), callback);
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	// Test 2
+	thr_pool.post(std::bind(gfun, 2222), CallBack<void(int)>([](int value)->void {
+		std::cout << "callback: value=" << value 
+			<< " thr_id:" << std::this_thread::get_id() << std::endl;
+	}, std::move(200)));
+#else
+	// 创建线程池，指定最大线程数.
+	ThrPool thr_pool;
 	std::cout << " =======  begin all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
 
 	// 调用全局函数，仿函数，Lamada表达式.
@@ -93,6 +114,8 @@ int main()
 	std::cout << std::endl;
 #endif
 	std::cout << " =======  finish all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool.idleCount() << std::endl;
+#endif
+
 	system("pause");
 	return 0;
 }
