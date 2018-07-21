@@ -8,7 +8,7 @@
 
 #include <iostream>
 
-template<class T> class MemPool
+template<typename T> class MemPool
 {
 	struct MemNode
 	{//作为内存分配节点存在，每个节点默认管理32*sizeof(T)的内存。
@@ -34,7 +34,6 @@ protected:
 protected:
 	static inline size_t itemSize() {
 		static size_t _itemSize = (sizeof(T) > sizeof(void*)) ? sizeof(T) : sizeof(void*);
-		//std::cout << _itemSize << std::endl;
 		return _itemSize;
 	}
 	size_t _GetMemSize()
@@ -60,7 +59,7 @@ public:
 		}
 		_first = _last = NULL;
 		if (_lastDelete)
-			std::cout << "Warning: left destroy memory and not used" << std::endl;
+			std::cout << "Warning: left delete memory and not used" << std::endl;
 		_lastDelete = NULL;
 	}
 

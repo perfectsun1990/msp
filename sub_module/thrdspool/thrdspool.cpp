@@ -70,8 +70,12 @@ StrFun(std::string str, std::function<void(std::string&&)> callback)
 
 int main()
 {
-	ThrPool thr_pool(MAX_THREADS_NUM);
+	std::thread([&]() {
+		ThrPool thr_pool(MAX_THREADS_NUM);
+	}).detach();
+
 #if 1
+	ThrPool thr_pool(MAX_THREADS_NUM);
 	// Test 1  使用全局函数
 	std::future<int32_t> future_return1 = thr_pool.post(StrFun, "StrFun is started!", [](std::string&& str)
 	{
