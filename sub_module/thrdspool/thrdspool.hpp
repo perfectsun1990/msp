@@ -17,20 +17,16 @@
 #include <thread>
 #include <functional>
 #include <stdexcept>
-
+#include <iostream>
 #include "signals.h"
 
-//线程池最大容量,应尽量设小一点
-#define  THREADPOOL_MAX_NUM		16
-#define  THREADPOOL_AUTO_GROW
-
 template<typename _ResT, typename ... _ArgTs>
-class CallBack;
+class BindFunc;
 template<typename _ResT, typename ... _ArgTs>
-class CallBack<_ResT(_ArgTs...)>
+class BindFunc<_ResT(_ArgTs...)>
 {
 public:
-	template<typename _FuncT> CallBack(_FuncT&& func, _ArgTs&&... args)
+	template<typename _FuncT> BindFunc(_FuncT&& func, _ArgTs&&... args)
 	{
 		sig = std::make_shared<vdk::signal<_ResT(_ArgTs...)>>();
 		sig->connect(&func);
@@ -38,13 +34,17 @@ public:
 	}
 	void operator()() 
 	{
-		sig->emit(std::forward<_ArgTs...>(std::get<0>(*tp)));
+		sig->emit(std::forward<_ArgTs...>(std::get<0>(*tup)));
 	}
 private:
 	std::shared_ptr<vdk::signal<_ResT(_ArgTs...)>>	sig{ nullptr };
 	std::shared_ptr<std::tuple<_ArgTs...>>			tup{ nullptr };
 };
 
+//线程数量推荐配置：
+//计算密集型：cpu cores+1；IO密集型：限制条件内越多越好。
+//#define  THREADS_AUTOGROW
+//#define  MAX_THREADS_NUMS		16
 class ThrPool
 {
 public:
@@ -75,17 +75,17 @@ public:
 	// 调用.get()阻塞获取函数返回值->pull模式.
 	// 或者注册callback()等待被触发->push模式.
 	template< typename Func, typename... Args>
-	auto push(Func&& func, Args&&... args) ->std::future<decltype(func(args...))>
+	auto post(Func&& func, Args&&... args) ->std::future<decltype(func(args...))>
 	{
-		using return_t = decltype(func(args...));
+		using retv_t = decltype(func(args...));
 		if (!m_running) 
-			return std::promise<return_t>().get_future();
-		// 		std::cout << typeid(func).name() << "return_t() is same with result_of ?: " << 
-		// 			std::is_same<return_t(), typename std::result_of<F(Args...)>::type()>::value << std::endl;
-		std::shared_ptr<std::packaged_task<return_t()>> pTask =
-			std::make_shared<std::packaged_task<return_t()>>(
+			return std::promise<retv_t>().get_future();
+		// 		std::cout << typeid(func).name() << "retv_t() is same with result_of ?: " << 
+		// 			std::is_same<retv_t(), typename std::result_of<F(Args...)>::type()>::value << std::endl;
+		std::shared_ptr<std::packaged_task<retv_t()>> pTask =
+			std::make_shared<std::packaged_task<retv_t()>>(
 				std::bind(std::forward<Func>(func), std::forward<Args>(args)...));
-		std::future<return_t> task_future = pTask->get_future();
+		std::future<retv_t> task_future = pTask->get_future();
 		{
 			std::lock_guard<std::mutex> locker(m_taskMux);
 			m_taskQue.emplace([pTask]() {
@@ -95,27 +95,6 @@ public:
 		// 唤醒一个线程执行
 		m_taskCon.notify_one();
 		return task_future;
-	}
-
-	// 提交一个异步任务.
-	// 调用.get()阻塞获取函数返回值->pull模式.
-	// 或者注册callback()等待被触发->push模式.
-	void post(std::function<void(void)> func, std::function<void(void)> callback = nullptr)
-	{
-		{
-			std::lock_guard<std::mutex> locker(m_taskMux);
-			m_taskQue.emplace([func, callback]() {
-				func();
-				std::thread([callback]() {
-					if (callback) callback();
-					printf("----->>>>>>>>>>>>finish ok!\n");
-				}).detach();	
-				printf("##################finish!\n");
-			});
-		}
-		// 唤醒一个线程执行
-		m_taskCon.notify_one();
-		return;
 	}
 
 private:
@@ -173,10 +152,10 @@ class TaskQue
 {
 public:
 	template< typename Func, typename... Args>
-	auto commit(Func&& func, Args&&... args) ->std::future<decltype(func(args...))>{
-		return m_thrpool->commit(std::forward<Func>(func), std::forward<Args>(args)...);
+	auto push(Func&& func, Args&&... args) ->std::future<decltype(func(args...))>{
+		return m_thrpool->post(std::forward<Func>(func), std::forward<Args>(args)...);
 	}
-	int32_t taskCount() {
+	int32_t size() {
 		return m_thrpool->taskCount();
 	}
 private:
