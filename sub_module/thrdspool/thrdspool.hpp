@@ -292,7 +292,7 @@ class ThrPool final
 public:
 	// 定义任务函数类型.
 	using Task = std::function<void(void)>;	
-	ThrPool(int32_t size = 4) {
+	ThrPool(int32_t size = 8) {
 		m_running = true;
 		insertThreads(size);//当前是逐个追加.
 	}
@@ -316,7 +316,7 @@ public:
 		return m_taskQue.post(std::forward<_FuncT>(func), std::forward<_ArgTs>(args)...);
 	}
 private:
-	void insertThreads(int32_t size = 4)
+	void insertThreads(int32_t size = 8)
 	{
 		for (int32_t i=0; i<size; ++i) {
 			m_workQue.emplace_back(std::make_shared<ThrWorker>([this]()
