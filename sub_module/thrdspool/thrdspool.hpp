@@ -204,13 +204,13 @@ public:
 	// 提交一个异步任务.
 	// 调用.get()阻塞获取函数返回值->pull模式.
 	// 或者注册callback()等待被触发->push模式.
-	template< typename _Func, typename... _ArgTs>
-	auto post(_Func&& func, _ArgTs&&... args) ->std::future<decltype(func(args...))>
+	template< typename _FuncT, typename... _ArgTs>
+	auto post(_FuncT&& func, _ArgTs&&... args) ->std::future<decltype(func(args...))>
 	{
-		using retv_t = typename std::result_of<_Func(_ArgTs...)>::type;
+		using retv_t = typename std::result_of<_FuncT(_ArgTs...)>::type;
 		std::shared_ptr<std::packaged_task<retv_t()>> pTask =
 			std::make_shared<std::packaged_task<retv_t()>>(
-				std::bind(std::forward<_Func>(func), std::forward<_ArgTs>(args)...));
+				std::bind(std::forward<_FuncT>(func), std::forward<_ArgTs>(args)...));
 		push([pTask]() {(*pTask)(); });
 		std::future<retv_t> task_future = pTask->get_future();
 		return task_future;
@@ -224,11 +224,11 @@ template<typename _ResT, typename ... _ArgTs>
 class BindFunc<_ResT(_ArgTs...)>
 {
 public:
-	template<typename _FuncT> BindFunc(_FuncT&& _Func, _ArgTs&&... _ArgTs)
+	template<typename _FuncT> BindFunc(_FuncT&& func, _ArgTs&&... args)
 	{
 		sig = std::make_shared<vdk::signal<_ResT(_ArgTs...)>>();
-		sig->connect(&_Func);
-		tup =  std::make_shared<std::tuple<_ArgTs...>>(std::make_tuple<_ArgTs...>(std::forward<_ArgTs>(_ArgTs)...));
+		sig->connect(&func);
+		tup =  std::make_shared<std::tuple<_ArgTs...>>(std::make_tuple<_ArgTs...>(std::forward<_ArgTs>(args)...));
 	}
 	void operator()() 
 	{
@@ -266,14 +266,11 @@ public:
 	int32_t thrsCount() {
 		return m_workQue.size();
 	}
-	template< typename _Func, typename... _ArgTs>
-	auto post(_Func&& func, _ArgTs&&... args) ->std::future<decltype(func(args...))> 
-	{
-		std::cout << typeid(func).name() << "retv_t() is same with result_of ?: " <<
-			std::is_same<decltype(func(args...))(), typename std::result_of<_Func(_ArgTs...)>::type()>::value << std::endl;
-		return m_taskQue.post(std::forward<_Func>(func), std::forward<_ArgTs>(args)...);
+	// 提交线程异步任务.
+	template< typename _FuncT, typename... _ArgTs>
+	auto post(_FuncT&& func, _ArgTs&&... args) ->std::future<decltype(func(args...))>  {
+		return m_taskQue.post(std::forward<_FuncT>(func), std::forward<_ArgTs>(args)...);
 	}
-
 private:
 	void appendThrToworkQue(int32_t size)
 	{
