@@ -197,6 +197,27 @@ private:
 	std::atomic<bool>		m_wake{ false };
 };
 
+template<typename _ResT, typename ... _ArgTs>
+class BindFunc;
+template<typename _ResT, typename ... _ArgTs>
+class BindFunc<_ResT(_ArgTs...)>
+{
+public:
+	template<typename _FuncT> BindFunc(_FuncT&& func, _ArgTs&&... args)
+	{
+		sig = std::make_shared<vdk::signal<_ResT(_ArgTs...)>>();
+		sig->connect(&func);
+		tup = std::make_shared<std::tuple<_ArgTs...>>(std::make_tuple<_ArgTs...>(std::forward<_ArgTs>(args)...));
+	}
+	void operator()()
+	{
+		sig->emit(std::forward<_ArgTs...>(std::get<0>(*tup)));
+	}
+private:
+	std::shared_ptr<vdk::signal<_ResT(_ArgTs...)>>	sig{ nullptr };
+	std::shared_ptr<std::tuple<_ArgTs...>>			tup{ nullptr };
+};
+
 class TaskQueue final
 	: public SafeQueue<std::function<void(void)>>
 {
@@ -217,26 +238,49 @@ public:
 	}
 };
 
-
-template<typename _ResT, typename ... _ArgTs>
-class BindFunc;
-template<typename _ResT, typename ... _ArgTs>
-class BindFunc<_ResT(_ArgTs...)>
+class ThrWorker
 {
 public:
-	template<typename _FuncT> BindFunc(_FuncT&& func, _ArgTs&&... args)
-	{
-		sig = std::make_shared<vdk::signal<_ResT(_ArgTs...)>>();
-		sig->connect(&func);
-		tup =  std::make_shared<std::tuple<_ArgTs...>>(std::make_tuple<_ArgTs...>(std::forward<_ArgTs>(args)...));
+	ThrWorker(std::function<void()> task){
+		m_taskPtr = std::make_shared<std::function<void()>>(task);
 	}
-	void operator()() 
-	{
-		sig->emit(std::forward<_ArgTs...>(std::get<0>(*tup)));
+	~ThrWorker() {
+		stopd();
+	}
+	bool state(){
+		return m_running;
+	}
+	void start( bool loop = false ) {
+		if (!m_running)
+		{
+			m_running = true;
+			m_looping = loop;
+			m_workThr = std::thread([this]() {
+				while (m_running) {
+					(*m_taskPtr)();
+					if (!m_looping)
+						break;
+				}
+			});
+		}
+	}
+	void stopd( bool sepa = false) {
+		if (m_running)
+		{
+			m_running = false;
+			if (!sepa) {
+				if (m_workThr.joinable())
+					m_workThr.join();
+			}else {
+				m_workThr.detach();
+			}
+		}
 	}
 private:
-	std::shared_ptr<vdk::signal<_ResT(_ArgTs...)>>	sig{ nullptr };
-	std::shared_ptr<std::tuple<_ArgTs...>>			tup{ nullptr };
+	std::atomic<bool> 		 						m_running{ false };	 //运行状态
+	std::atomic<bool> 		 						m_looping{ false };	 //是否循环
+	std::thread 									m_workThr;			 //工作线程
+	std::shared_ptr<std::function<void()>>			m_taskPtr{ nullptr };
 };
 
 //线程数量推荐配置：
@@ -250,11 +294,11 @@ public:
 	using Task = std::function<void(void)>;	
 	ThrPool(int32_t size = 4) {
 		m_running = true;
-		appendThrToworkQue(size);//当前是逐个追加.
+		insertThreads(size);//当前是逐个追加.
 	}
 	~ThrPool() {
 		m_running = false;
-		deleteThrFrworkQue();//当前是销毁所有.
+		removeThreads();//当前是销毁所有.
 	}
 	// 内部运行状态获取.
 	int32_t idleCount() {
@@ -272,16 +316,15 @@ public:
 		return m_taskQue.post(std::forward<_FuncT>(func), std::forward<_ArgTs>(args)...);
 	}
 private:
-	void appendThrToworkQue(int32_t size)
+	void insertThreads(int32_t size = 4)
 	{
-		for (int32_t i = 0; i < size; ++i)
-		{
-			m_workQue.emplace_back(std::thread([this]()
+		for (int32_t i=0; i<size; ++i) {
+			m_workQue.emplace_back(std::make_shared<ThrWorker>([this]()
 			{
-				while (m_running)
+				Task task = nullptr;
+				m_taskQue.popd(task);//阻塞队列,移除时需要唤醒.
+				if (m_running)
 				{
-					Task task = nullptr;
-					m_taskQue.popd(task);
 					m_idlnums--;
 					if (nullptr != task)
 						task();//执行任务
@@ -290,21 +333,29 @@ private:
 			}));
 			m_idlnums++;
 		}
+		for (auto &item : m_workQue) {
+			item->start(true);
+		}
 	}
-	void deleteThrFrworkQue( void )
+	void removeThreads(int32_t size = 0)
 	{
 		m_taskQue.awake(true);
-		for (auto &item : m_workQue){
-			if (item.joinable())
-				item.join();
+		for (int32_t i = 0; i<size; ++i){
+			if (m_workQue[i]->state())
+				m_workQue[i]->stopd();
 		}
-		m_taskQue.clear();
+		if( 0 ==  size ) {
+			for (auto &item : m_workQue)
+				item->stopd();
+			m_taskQue.clear();
+		}		
 		m_taskQue.awake(false);
 	}
 private:
-	std::atomic<int32_t>		m_idlnums{ 0 };		 //空闲数量
-	std::atomic<bool> 		 	m_running{ true };	 //运行状态
-	std::vector<std::thread> 	m_workQue;			 //线程队列
-	TaskQueue 					m_taskQue;			 //任务队列
+	std::atomic<int32_t>							m_idlnums{ 0 };			//空闲数量
+	std::atomic<bool> 		 						m_running{ true };		//运行状态
+	std::vector<std::shared_ptr<ThrWorker>>			m_workQue;				//线程队列
+	TaskQueue 										m_taskQue;				//任务队列
 };
+
 
