@@ -179,43 +179,50 @@ Mplayer::onMPts(int32_t type, double upts)
 		//if (upts > 10) m_vmrender->pause(true); hide audio.
 	}
 }
+#define  TEST_WINDOW true
+#define  TEST_REOPEN false
 
+#if TEST_WINDOW
 #include <QApplication>
 #include <QMainWindow>
+#endif
 
 int32_t main(int32_t argc, char *argv[])
 {
+#if TEST_WINDOW
 	QApplication app(argc, argv);
 	QWidget window1, window2;
 	window1.resize(640, 360);
 	window2.resize(640, 360);
 	window1.show();
 	window2.show();
-#if 0// 1 chinese test
+#endif
+
+#if TEST_CHINESE// 1 chinese test
 	const char* speakr1 = "耳机 (Bluedio Stereo)";
 	const char* speakr2 = "扬声器 (Realtek High Definition Audio)";
 #else
 	const char* speakr1 = "";
 	const char* speakr2 = "";
-
 #endif
+
 	std::thread([&]() 
 	{
-#if 1// 2 window test
+#if TEST_WINDOW// 2 window test
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
-			std::make_shared<Mplayer>("E:\\av-test\\6构件夹的设置.avi", speakr2, (void*)window2.winId());
+			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr2, (void*)window2.winId());
 #else
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4");
 		std::shared_ptr<Mplayer> mp2 =
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
-		//mp1->start();
-		mp2->start();
-#if 0// 3 reopen thread_safe test
-		for (int32_t i=0 ;i<5; ++i)
+		mp1->start();
+		//mp2->start();
+#if TEST_REOPEN// 3 reopen thread_safe test
+		for (int32_t i=0 ;i<3; ++i)
 		{
 			mp1->stopd();
 			std::this_thread::sleep_for(std::chrono::seconds(3));
@@ -226,8 +233,11 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 		std::this_thread::sleep_for(std::chrono::seconds(1000));
 	}).detach();
-
 	msg(" main loog exec..............................\n");
+#if TEST_WINDOW
 	app.exec();
+#else
+	std::this_thread::sleep_for(std::chrono::seconds(1000));
+#endif
 	return 0;
 }
