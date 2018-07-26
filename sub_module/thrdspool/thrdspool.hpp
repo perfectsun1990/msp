@@ -12,6 +12,7 @@
 #include <vector>
 #include <queue>
 #include <stack>
+#include <list>
 #include <atomic>
 #include <future>
 #include <condition_variable>
@@ -341,20 +342,24 @@ private:
 	{
 		m_taskQue.awake(true);
 		for (int32_t i = 0; i<size; ++i){
-			if (m_workQue[i]->state())
-				m_workQue[i]->stopd();
-		}
-		if( 0 ==  size ) {
 			for (auto &item : m_workQue)
 				item->stopd();
+		}
+		if( 0 ==  size ) {
+			for (auto iter = m_workQue.begin(); iter != m_workQue.end();) {
+				(*iter)->stopd();
+				m_workQue.remove(*iter++);
+			}
 			m_taskQue.clear();
 		}		
 		m_taskQue.awake(false);
 	}
+	
 private:
 	std::atomic<int32_t>							m_idlnums{ 0 };			//空闲数量
 	std::atomic<bool> 		 						m_running{ true };		//运行状态
-	std::vector<std::shared_ptr<ThrWorker>>			m_workQue;				//线程队列
+	std::list<std::shared_ptr<ThrWorker>>			m_workQue;				//线程队列
+	//std::list<std::shared_ptr<ThrWorker>>			m_workQue1;				//线程队列
 	TaskQueue 										m_taskQue;				//任务队列
 };
 

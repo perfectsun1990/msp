@@ -608,13 +608,13 @@ struct MRframe
 };
 
 static void
-av_a_frame_freep(AVFrame** frame)
+audio_frame_freep(AVFrame** frame)
 {
 	av_frame_free(frame);
 }
 
 static AVFrame*
-av_a_frame_alloc(enum AVSampleFormat smp_fmt,
+audio_frame_alloc(enum AVSampleFormat smp_fmt,
 	uint64_t channel_layout, int32_t sample_rate, int32_t nb_samples)
 {
 	int32_t ret = 0;
@@ -628,23 +628,22 @@ av_a_frame_alloc(enum AVSampleFormat smp_fmt,
 	frame->nb_samples	= nb_samples;
 	frame->channel_layout = channel_layout;
 	frame->channels		= av_get_channel_layout_nb_channels(channel_layout);
-	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
-	{
+	if ((ret = av_frame_get_buffer(frame, 0)) < 0){
 		err("av_frame_get_buffer failed! ret=%d\n", ret);
-		av_a_frame_freep(&frame);
+		audio_frame_freep(&frame);
 		return nullptr;
 	}
 	return frame;
 }
 
 static void
-av_v_frame_freep(AVFrame** frame)
+video_frame_freep(AVFrame** frame)
 {
 	av_frame_free(frame);
 }
 
 static AVFrame*
-av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
+video_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 {
 	AVFrame *frame = nullptr;
 	int32_t ret = 0;
@@ -658,81 +657,81 @@ av_v_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
 	if ((ret = av_frame_get_buffer(frame, 0)) < 0)
 	{/* allocate the buffers for the frame->data[] */
 		err("av_frame_get_buffer failed! ret=%d\n", ret);
-		av_v_frame_freep(&frame);
+		video_frame_freep(&frame);
 		return nullptr;
 	}
 	return frame;
 }
 
-static AVFrame*
-av_rescale(SwsContext **pswsctx, AVFrame*  avframe,
-	int32_t dst_w, int32_t dst_h, int32_t dst_f)
+/**
+ *@重采样函数,返回一个指针指向采样后数据，有可能是输入的指针，不好。
+ */
+static bool
+video_rescale(SwsContext **pswsctx,AVFrame *dst_frame, AVFrame *src_frame)
 {
-	if (nullptr == avframe || nullptr == pswsctx)
-		return nullptr;
+	if (!src_frame || !dst_frame || !pswsctx)
+		return false;
 
-	AVFrame	 *src_frame = avframe, *dst_frame = src_frame;
-
-	if (src_frame->width != dst_w || src_frame->height != dst_h
-		|| src_frame->format != dst_f)
+	if (	src_frame->width  != dst_frame->width 
+		||  src_frame->height != dst_frame->height
+		||	src_frame->format != dst_frame->format )
 	{	//  Auto call sws_freeContext() if reset.
 		//  1.获取转换句柄. [sws_getCachedContext will check cfg and reset *pswsctx]
-		if (nullptr == (*pswsctx = sws_getCachedContext(*pswsctx,
+		if (nullptr == (*pswsctx = sws_getCachedContext( *pswsctx,
 			src_frame->width, src_frame->height, (AVPixelFormat)src_frame->format,
-			dst_w, dst_h, (AVPixelFormat)dst_f,
+			dst_frame->width, dst_frame->height, (AVPixelFormat)dst_frame->format,
 			SWS_FAST_BILINEAR, nullptr, nullptr, nullptr)))
-			return nullptr;
-		//  2.申请缓存数据. []
-		if (nullptr == (dst_frame = av_v_frame_alloc((AVPixelFormat)dst_f, dst_w, dst_h)))
-			return nullptr;
-		//  3.进行图像转换. [0-from begin]
-		if (sws_scale(*pswsctx, (const uint8_t* const*)src_frame->data, src_frame->linesize, 0, dst_frame->height, dst_frame->data, dst_frame->linesize) <=0 )
-			av_v_frame_freep(&dst_frame);//inner reset dst_frame = nullptr;
+			return false;
+		//  2.进行图像转换. [0-from begin]
+		if (sws_scale(*pswsctx, (const uint8_t* const*)src_frame->data, src_frame->linesize, 0, dst_frame->height, dst_frame->data, dst_frame->linesize) <= 0)
+			video_frame_freep(&dst_frame);//inner reset dst_frame = nullptr;
+	} else {
+		if (av_frame_copy(dst_frame, src_frame))
+			return false;
+		if (av_frame_copy_props(dst_frame, src_frame))
+			return false;
 	}
-	return dst_frame;
+	return true;
 }
 
-static AVFrame*
-av_resmple(SwrContext **pswrctx, AVFrame*  avframe,
-	int32_t dst_s, int32_t dst_n, uint64_t dst_l, int32_t dst_f)
+static bool
+audio_resmple(SwrContext **pswrctx, AVFrame *dst_frame, const AVFrame *src_frame )
 {
-	if (nullptr == avframe || nullptr == pswrctx)
-		return nullptr;
-
-	AVFrame	 *src_frame = avframe, *dst_frame = src_frame;
+	if (!src_frame || !dst_frame || !pswrctx)
+		return false;
 	int32_t dst_nb_samples = -1;
-
-	if (src_frame->sample_rate != dst_s || src_frame->nb_samples != dst_n ||
-		src_frame->channel_layout != dst_l || src_frame->format != dst_f)
+	if (	src_frame->sample_rate	!= dst_frame->sample_rate
+		||	src_frame->channel_layout != dst_frame->channel_layout
+		||	src_frame->format		!= dst_frame->format
+		||  src_frame->nb_samples	!= dst_frame->nb_samples)
 	{
 		//  1.获取转换句柄.
 		if (nullptr == *pswrctx)
-		{
-			if (nullptr == (*pswrctx = swr_alloc_set_opts(*pswrctx, dst_l, (AVSampleFormat)dst_f, dst_s,
+		{// Because we can't get SwrContext' sub members,so can't cached.
+			if (nullptr == (*pswrctx = swr_alloc_set_opts(*pswrctx, 
+				dst_frame->channel_layout, (AVSampleFormat)dst_frame->format, dst_frame->sample_rate,
 				src_frame->channel_layout, (AVSampleFormat)src_frame->format, src_frame->sample_rate,
 				0, 0)))
-				return nullptr;
+				return false;
 			if (swr_init(*pswrctx) < 0) {
 				swr_free(pswrctx);
-				return nullptr;
+				return false;
 			}
-		}
-		//  2.申请缓存数据.
-		if (nullptr == (dst_frame = av_a_frame_alloc((AVSampleFormat)dst_f, dst_l, dst_s, dst_n)))
-			return nullptr;
-		//  3.进行音频转换.
+		}		
+		//  2.进行音频转换.
 		if ((dst_nb_samples = swr_convert(*pswrctx, dst_frame->data, dst_frame->nb_samples,
-			(const uint8_t**)src_frame->data, src_frame->nb_samples)) <= 0)
-		{
-			av_a_frame_freep(&dst_frame);
-			return nullptr;
-		}
+			(const uint8_t**)src_frame->data, src_frame->nb_samples)) <= 0)		
+			return false;
 		if (dst_nb_samples != dst_frame->nb_samples)
 			war("expect nb_samples=%d, dst_nb_samples=%d\n", dst_frame->nb_samples, dst_nb_samples);
+	} else {
+		if (av_frame_copy(dst_frame, src_frame))
+			return false;
+		if (av_frame_copy_props(dst_frame, src_frame))
+			return false;
 	}
-	return dst_frame;
+	return true;
 }
-
 
 static inline char*
 av_pcmalaw_clone2buffer(AVFrame *frame, char* data, int32_t size)

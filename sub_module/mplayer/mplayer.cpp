@@ -205,15 +205,15 @@ int32_t main(int32_t argc, char *argv[])
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
-			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr2, (void*)window2.winId());
+			std::make_shared<Mplayer>("E:\\av-test\\6构件夹的设置.avi", speakr2, (void*)window2.winId());
 #else
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4");
 		std::shared_ptr<Mplayer> mp2 =
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
-		mp1->start();
-	//	mp2->start();
+		//mp1->start();
+		mp2->start();
 #if 0// 3 reopen thread_safe test
 		for (int32_t i=0 ;i<5; ++i)
 		{

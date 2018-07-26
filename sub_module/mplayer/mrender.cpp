@@ -117,21 +117,20 @@ VideoMrender::~VideoMrender()
 void 
 VideoMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
-	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
-	{// Note: Only rescale for unsupported foramts,convert to I420.
-		AVFrame* pfrm = av_rescale(&m_swsctx, av_frm->pfrm,
-			av_frm->pfrm->width,av_frm->pfrm->height, AV_PIX_FMT_YUV420P);
-		if (pfrm == nullptr) {
+	if (AV_PIX_FMT_YUV420P != av_frm->pfrm->format)
+	{// Note: Only rescale for unsupported foramts, convert to I420.
+		AVFrame* pfrm = video_frame_alloc(AV_PIX_FMT_YUV420P, av_frm->pfrm->width, av_frm->pfrm->height);
+		if (!video_rescale(&m_swsctx, pfrm, av_frm->pfrm)) {
 			err("video: pfrm=%p rescale failed...\n", pfrm);
+			video_frame_freep(&pfrm);
 			return;
 		}
-		if (pfrm != av_frm->pfrm){// update the av_frm parameters...
-			av_frame_free(&av_frm->pfrm);
-			av_frm->pfrm		 = pfrm;
-			av_frm->pars->width  = pfrm->width;
-			av_frm->pars->height = pfrm->height;
-			av_frm->pars->format = pfrm->format;
-		}
+		// update the av_frm parameters...
+		av_frame_free(&av_frm->pfrm);
+		av_frm->pfrm = pfrm;
+		av_frm->pars->width = pfrm->width;
+		av_frm->pars->height = pfrm->height;
+		av_frm->pars->format = pfrm->format;
 	}
 	if (CHK_PROPERTY(av_frm->prop, P_SEEK)){
 		m_render_Q.clear();
@@ -559,20 +558,21 @@ AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only resmple for unsupported foramts,convert to fltp.
-		AVFrame* pfrm = av_resmple(&m_swrctx, av_frm->pfrm, av_frm->pfrm->sample_rate,
-			av_frm->pfrm->nb_samples, av_frm->pfrm->channel_layout, AV_SAMPLE_FMT_FLTP);
-		if (pfrm == nullptr) {
+		AVFrame* pfrm = audio_frame_alloc(AV_SAMPLE_FMT_FLTP, 
+			av_frm->pfrm->channel_layout, av_frm->pfrm->sample_rate, av_frm->pfrm->nb_samples);
+		if (!audio_resmple(&m_swrctx, pfrm, av_frm->pfrm)) {
 			err("Audio: pfrm=%p resmple failed...\n", pfrm);
+			audio_frame_freep(&pfrm);
 			return;
 		}
-		if (pfrm != av_frm->pfrm){// update av_frm parameters...
-			av_frame_free(&av_frm->pfrm);
-			av_frm->pfrm				 = pfrm;
-			av_frm->pars->sample_rate    = pfrm->sample_rate;
-			av_frm->pars->channels		 = pfrm->channels;
-			av_frm->pars->channel_layout = pfrm->channel_layout;
-			av_frm->pars->format		 = pfrm->format;
-		}
+		// update av_frm parameters...
+		av_frame_free(&av_frm->pfrm);
+		av_frm->pfrm = pfrm;
+		av_frm->pars->sample_rate	= av_frm->pfrm->sample_rate;
+		av_frm->pars->channels		= av_frm->pfrm->channels;
+		av_frm->pars->channel_layout= av_frm->pfrm->channel_layout;
+		av_frm->pars->format		= av_frm->pfrm->format;
+		
 	}
 	if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
 		m_render_Q.clear();
