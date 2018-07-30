@@ -219,7 +219,7 @@ private:
 	std::shared_ptr<std::tuple<_ArgTs...>>			tup{ nullptr };
 };
 
-class TaskQueue final
+class TaskQueue
 	: public SafeQueue<std::function<void(void)>>
 {
 public:
@@ -288,7 +288,7 @@ private:
 //计算密集型：cpu cores+1；IO密集型：限制条件内越多越好。
 //#define  THREADS_AUTOGROW
 //#define  MAX_THREADS_NUMS		16
-class ThrPool final
+class ThrPool
 {
 public:
 	// 定义任务函数类型.
@@ -359,7 +359,6 @@ private:
 	std::atomic<int32_t>							m_idlnums{ 0 };			//空闲数量
 	std::atomic<bool> 		 						m_running{ true };		//运行状态
 	std::list<std::shared_ptr<ThrWorker>>			m_workQue;				//线程队列
-	//std::list<std::shared_ptr<ThrWorker>>			m_workQue1;				//线程队列
 	TaskQueue 										m_taskQue;				//任务队列
 };
 
