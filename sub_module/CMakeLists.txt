@@ -7,8 +7,9 @@ add_subdirectory(av-core)
 add_subdirectory(mempool)
 add_subdirectory(lfqueue)
 add_subdirectory(thrdspool)
-add_subdirectory(alphaGo)
 add_subdirectory(jansson)
+add_subdirectory(encrypt)
+add_subdirectory(alphaGo)
 
 
 

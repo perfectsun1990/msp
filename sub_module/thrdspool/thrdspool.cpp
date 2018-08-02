@@ -67,14 +67,39 @@ StrFun(std::string str, std::function<void(std::string&&)> callback)
 }
 
 #define  MAX_THREADS_NUM   16
-
+static int32_t fsize(FILE* fp)
+{
+	struct stat s;
+	if (0 == fstat(fileno(fp), &s))
+		return s.st_size;
+	return -1;
+}
+static int32_t fsize_path(const char* path)
+{
+	struct stat s;
+	if (0 == stat(path, &s))
+		return s.st_size;
+	return -1;
+}
 int main()
 {
 	std::thread([&]() {
 		ThrPool thr_pool(MAX_THREADS_NUM);
 	}).detach();
-
-#if 1
+	
+	char buff[128] = "hello world";
+	int32_t size = strlen(buff);
+	FILE* fp =fopen("a.txt","w+");
+	fwrite(buff,sizeof(char), size, fp);
+	memset(buff,0,sizeof(buff));
+	rewind(fp);	//fseek(fp, -size, SEEK_END);
+	fread(buff, sizeof(char), size, fp);
+	printf("buff=%s\n", buff);
+	
+	printf("---size=%d\n", fsize(fp));
+	printf("---size=%d\n", fsize_path("a.txt"));
+	fclose(fp);
+#if 0
 	ThrPool thr_pool(MAX_THREADS_NUM);
 	// Test 1  使用全局函数
 	std::future<int32_t> future_return1 = thr_pool.post(StrFun, "StrFun is started!", [](std::string&& str)
