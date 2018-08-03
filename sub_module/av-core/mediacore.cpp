@@ -1002,7 +1002,7 @@ end:
 	return true;
 }
 
-#ifdef MEDIACORE_TEST
+#ifdef UNITS_TEST
 int main()
 {
 #if 0
