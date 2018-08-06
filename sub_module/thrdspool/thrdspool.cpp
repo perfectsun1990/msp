@@ -205,6 +205,7 @@ public:
 	~ThrdsPoolImpl() {
 		m_running = false;
 		removeThreads(0);	//当前是销毁所有.
+		m_taskQue->clear();
 	}
 	// 内部运行状态获取.
 	int32_t idleCount() override {
@@ -222,10 +223,9 @@ public:
 	void post(Task&& task) {
 		m_taskQue->push(std::forward<Task>(task));
 	}
-	void insertThreads(int32_t size = 8) override
-	{
-		for (int32_t i = 0; i < size; ++i) {
-			m_workQue.emplace_back(ThrdProxy::create([this]()
+	void insertThreads(int32_t size = 8) override {
+		for (int32_t i=0; i<size; ++i) {
+			auto item = ThrdProxy::create([this]()
 			{
 				Task task = nullptr;
 				m_taskQue->popd(task);//阻塞队列,移除时需要唤醒.
@@ -236,26 +236,22 @@ public:
 						task();//执行任务
 					m_idlnums++;
 				}
-			}));
+			});
+			item->start(true);
+			std::lock_guard<std::mutex> locker(m_workMux);
+			m_workQue.emplace_back(item);
 			m_idlnums++;
 		}
-		for (auto &item : m_workQue) {
-			item->start(true);
-		}
 	}
-	void removeThreads(int32_t size = 1) override
-	{
+	void removeThreads(int32_t size = 1) override {
 		m_taskQue->awake(true);
-		for (int32_t i = 0; i < size; ++i) {
-			for (auto &item : m_workQue)
-				item->stopd();
-		}
-		if (0 == size) {
-			for (auto iter = m_workQue.begin(); iter != m_workQue.end();) {
-				(*iter)->stopd();
-				m_workQue.remove(*iter++);
-			}
-			m_taskQue->clear();
+		int32_t iNums = size;
+		for (auto item = m_workQue.begin(); item != m_workQue.end();) {
+			if (iNums-- <= 0 && 0 != size)	break;
+			(*item)->stopd();
+			std::lock_guard<std::mutex> locker(m_workMux);
+			m_workQue.remove(*item++);
+			m_idlnums--;
 		}
 		m_taskQue->awake(false);
 	}
@@ -263,6 +259,7 @@ private:
 	std::atomic<int32_t>								m_idlnums{ 0 };			//空闲数量
 	std::atomic<bool> 		 							m_running{ true };		//运行状态
 	std::list<std::shared_ptr<ThrdProxy>>				m_workQue;				//线程队列
+	std::mutex											m_workMux;				//互斥变量
 	std::shared_ptr<TaskQueue>							m_taskQue;				//任务队列
 };
 std::shared_ptr<ThrdsPool> ThrdsPool::create(int32_t size)
@@ -271,10 +268,12 @@ std::shared_ptr<ThrdsPool> ThrdsPool::create(int32_t size)
 }
 
 #ifdef UNITS_TEST
+
+#define  MAX_THREADS_NUM   16
 int gfunBlock(int slp)
 {
 	//printf("%s execute!  thrid=%d\n",__FUNCTION__, std::this_thread::get_id());
-	std::this_thread::sleep_for(std::chrono::seconds(3));
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 	return  slp;
 }
 
@@ -306,9 +305,7 @@ public:
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 		return n;
 	}
-
-	int32_t StrFun(std::string str, std::function<void(std::string&&)> callback)
-	{
+	int32_t StrFun(std::string str, std::function<void(std::string&&)> callback){
 		int32_t i = 0;
 		for (i = 0; i< 3; i++) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -318,7 +315,6 @@ public:
 		if (callback) callback("StrFun is finished!");
 		return i;
 	}
-
 };
 
 int32_t 
@@ -333,30 +329,38 @@ StrFun(std::string str, std::function<void(std::string&&)> callback)
 	if (callback) callback("StrFun is finished!");
 	return i;
 }
+void func(void) { std::cout << "task func exec" << std::endl; }
 
-static int32_t fsize(FILE* fp)
+void test_thrdspool()
 {
-	struct stat s;
-	if (0 == fstat(fileno(fp), &s))
-		return s.st_size;
-	return -1;
-}
-static int32_t fsize_path(const char* path)
-{
-	struct stat s;
-	if (0 == stat(path, &s))
-		return s.st_size;
-	return -1;
-}
+	Task task, task_tmp;
+	// 任务队列测试
+	std::cout << "=======  ThrdProxy begn =========" << std::endl;
+	std::shared_ptr<TaskQueue> pTaskQue = TaskQueue::create();
+	pTaskQue->push(std::bind(func));
+	pTaskQue->peek(task);
+	task();
+	std::shared_ptr<TaskQueue> pTaskQueNew = pTaskQue->clone();
+	//pTaskQueNew->push(std::bind(func));
+	pTaskQueNew->popd(task_tmp);//会clone原来队列中的数据。
+	task_tmp();
+	std::cout << "=======  TaskQueue over =========" << std::endl;
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 
-#define  MAX_THREADS_NUM   16
-int main()
-{
-	std::thread([&]() {
-		std::shared_ptr<ThrdsPool> thr_pool = ThrdsPool::create(MAX_THREADS_NUM);
-	}).detach();
+	// 线程代理测试
+	std::cout << "=======  ThrdProxy begn =========" << std::endl;
+	std::shared_ptr<ThrdProxy> pThrds = ThrdProxy::create(std::bind(func));
+	pThrds->start();
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	pThrds->stopd();
+	std::shared_ptr<ThrdProxy> pThrdsNew = pThrds->clone();
+	pThrdsNew->start();//会clone原来线程中的任务。
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	pThrdsNew->stopd();
+	std::cout << "=======  ThrdProxy over =========" << std::endl;
+#if 0
+	// 线程池的测试
 	std::shared_ptr<ThrdsPool> thr_pool = ThrdsPool::create(MAX_THREADS_NUM);
-
 	// Test 1  使用全局函数
 	std::future<int32_t> future_return1 = thr_pool->commit(StrFun, "StrFun is started!", [](std::string&& str)
 	{
@@ -379,41 +383,38 @@ int main()
 	std::cout << "=======  Test 2 post =========" << std::endl;
 	std::cout << "StrFun retv=" << future_return2.get() << " thr_id:" << std::this_thread::get_id() << std::endl;
 	std::cout << "=======  Test 2 over =========" << std::endl;
-#if 1
 	std::this_thread::sleep_for(std::chrono::seconds(3));
 
 	std::cout << "=======  start all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool->idleCount() << std::endl;
-
 	// 调用全局函数，仿函数，Lamada表达式.
 	std::future<int> ff = thr_pool->commit(gfun, 0);
 	std::future<int> fg = thr_pool->commit(gfunClass(), 0);
-	std::future<std::string> fh = thr_pool->commit([&]()->std::string 
-	{
+	std::future<std::string> fh = thr_pool->commit([&]()->std::string {
 		printf("%s execute!  thrid=%d\n", __FUNCTION__, std::this_thread::get_id());
 		return "fh test string";
 	});
+	std::cout << "returm fh=" << fh.get().c_str() << std::endl;
 
 	// 调用类成员函数
 	A a;
-	std::future<int> gg = thr_pool->commit(std::bind(&A::Cfun, &a, 9999)); 	
+	std::future<int> gg = thr_pool->commit(std::bind(&A::Cfun, &a, 9999));
 	std::future<std::string> gh = thr_pool->commit(A::Bfun, 6666, "gh test string", 'B');
-	std::future<int> gi = thr_pool->commit(std::bind(&A::Afun, 1000)); 
+	std::future<int> gi = thr_pool->commit(std::bind(&A::Afun, 1000));
 	std::future<int> gj = thr_pool->commit(std::bind(a.Afun, 400)); //IDE提示错误,但可以编译运行
-
-	// 获取返回值，
-	// 注意阻塞的函数，因为调用.get()获取返回值会等待线程执行完,此时调用get()会导致主程序阻塞。
+																	// 获取返回值，
+																	// 注意阻塞的函数，因为调用.get()获取返回值会等待线程执行完,此时调用get()会导致主程序阻塞。
 	auto ret = gg.get();
 	std::cout << "returm gg=" << ret << std::endl;
 	std::cout << "returm gh=" << gh.get().c_str() << std::endl;
-	std::cout << "returm fh=" << fh.get().c_str() << std::endl;
-
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
+	// 测试内部状态.
 	std::cout << "\n=======  beg post all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool->idleCount() << std::endl;
 	std::vector< std::future<int> > results;
-	for (int i = 0; i < MAX_THREADS_NUM+8; i++) 
+	for (int i = 0; i < MAX_THREADS_NUM + 8; i++)
 	{
 		results.emplace_back(std::move(thr_pool->commit(gfunBlock, i)));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));//防止任务还没有起来。
 		int idle = thr_pool->idleCount();
 		std::cout << "# thrsCount=" << thr_pool->thrsCount() << " idleCount=" << idle;
 		if (idle == 0) std::cout << "-->Task link up: No idle threads!";
@@ -424,6 +425,28 @@ int main()
 	std::cout << std::endl;
 
 	std::cout << "=======  stopd all ========= " << std::this_thread::get_id() << " idlsize=" << thr_pool->idleCount() << std::endl;
+#endif
+}
+
+int main()
+{
+	test_thrdspool();
+#if 0
+	std::shared_ptr<ThrdsPool> thr_pool = ThrdsPool::create(MAX_THREADS_NUM);
+	std::thread([thr_pool]() {
+		for (;;) {
+			thr_pool->insertThreads(1);
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			std::cout << "insertThreads" << thr_pool->idleCount() << std::endl;
+		}
+	}).detach();
+	std::thread([thr_pool]() {
+		for (;;) {
+			thr_pool->removeThreads(1);
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			std::cout << "removeThreads" << thr_pool->idleCount() << std::endl;
+		}
+	}).detach();
 #endif
 	system("pause");
 	return 0;

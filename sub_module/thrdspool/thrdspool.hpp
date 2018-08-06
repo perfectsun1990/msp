@@ -21,6 +21,11 @@
 #include <atomic>
 #include <future>
 
+/**
+*模板函数/类不能导出到动态链接库（DLL）
+*模板函数在声明的时候，其实并不存在，函数地址也就无从谈起了，而导出到动态链接库的函数都需要有地址，就是说函数模板不具备导出的基本条件。
+*函数模板在调用时后，有了具体的实现，这个时候才有了地址。如果要导出，必须将参数类型列表具体化或者模板定义出现在导出类内。
+*/
 using Task = std::function<void(void)>;
 
 class THRDSPOOL_API TaskQueue
@@ -61,11 +66,7 @@ protected:
 	ThrdProxy(const ThrdProxy& other) = delete;
 	ThrdProxy& operator=(const ThrdProxy& other) = delete;
 };
-/**
-	*模板函数/类不能导出到动态链接库（DLL）
-	*模板函数在声明的时候，其实并不存在，函数地址也就无从谈起了，而导出到动态链接库的函数都需要有地址，就是说函数模板不具备导出的基本条件。
-	*函数模板在调用时后，有了具体的实现，这个时候才有了地址。如果要导出，必须将参数类型列表具体化或者定义出现在导出类内。
- */
+
 class THRDSPOOL_API ThrdsPool
 {
 public:
