@@ -58,7 +58,7 @@ public:
 		m_data = std::move(other.m_data);
 		return *this;
 	}
-	std::shared_ptr<TaskQueue> clone() {
+	std::shared_ptr<TaskQueue> clone(){//this will copy tasks.
 		return std::make_shared<TaskQueueImpl>(*this);
 	}
 	void push(Task&& value)  override {
@@ -136,10 +136,10 @@ class ThrdProxyImpl : public ThrdProxy
 {
 public:
 	ThrdProxyImpl(std::function<void()>&  task)  {
-		m_taskPtr = std::make_shared<std::function<void()>>(std::forward<std::function<void()>>(task));
+		m_taskPtr = std::make_shared<Task>(std::forward<Task>(task));
 	}
 	ThrdProxyImpl(std::function<void()>&& task) {
-		m_taskPtr = std::make_shared<std::function<void()>>(std::forward<std::function<void()>>(task));
+		m_taskPtr = std::make_shared<Task>(std::forward<Task>(task));
 	}
 	~ThrdProxyImpl() {
 		stopd();
@@ -184,10 +184,10 @@ private:
 	std::shared_ptr<std::function<void()>>			m_taskPtr{ nullptr };
 };
 std::shared_ptr<ThrdProxy> ThrdProxy::create(Task&  task) {
-	return std::make_shared<ThrdProxyImpl>(std::forward<std::function<void()>>(task));
+	return std::make_shared<ThrdProxyImpl>(std::forward<Task>(task));
 }
 std::shared_ptr<ThrdProxy> ThrdProxy::create(Task&& task) {
-	return std::make_shared<ThrdProxyImpl>(std::forward<std::function<void()>>(task));
+	return std::make_shared<ThrdProxyImpl>(std::forward<Task>(task));
 }
 
 //线程数量推荐配置：
