@@ -1,0 +1,18 @@
+BIN=supzip
+GCC=cc
+CFLAGS= -g -O -I../..
+LFLAGS= -static -L ../.. -lz 
+
+SRCS := supzip.c unzip.c zip.c ioapi.c
+OBJS := $(patsubst %.c,%.o,$(notdir $(SRCS))) 
+
+$(BIN): $(OBJS)
+	$(GCC) -o $@ $(OBJS) $(LFLAGS)
+$(OBJS):%.o:%.c
+	$(GCC) -c $< $(CFLAGS)
+#.c.o:
+#	$(CC) -c $(CFLAGS) $*.c
+
+all: clean $(BIN)
+clean:
+	/bin/rm -f *.o *~ $(BIN)

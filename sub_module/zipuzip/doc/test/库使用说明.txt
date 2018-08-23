@@ -1,0 +1,19 @@
+
+libsupzip.a 	-静态库
+libsupzip.so	-动态库
+
+调用方法使用参考test.c
+
+linux下：(以下操作均在test目录下执行)
+
+使用动态库：
+	$ gcc test.c -L ./ -lsupzip -lz -o supzip 	 //生成一个名为：supzip的二进制可执行文件。
+	$ export LD_LIBRARY_PATH=./					 //指定动态库所在目录。
+	$ ./supzip e test.zip test.mp4	 			 //添加test.mp4到压缩文件.  
+	$ ./supzip d test.zip ./					 //解压test.zip到当前目录.
+
+使用静态库：
+	$ gcc test.c -static -L ./ -lsupzip -lz -o supzip
+	$ 直接可以用不用连接库了。
+	$ ./supzip e test.zip test.mp4	 			 //添加test.mp4到压缩文件.  
+	$ ./supzip d test.zip ./					 //解压test.zip到当前目录.
