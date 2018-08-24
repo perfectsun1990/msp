@@ -10,6 +10,7 @@ add_subdirectory(thrdspool)
 add_subdirectory(jansson)
 add_subdirectory(encrypt)
 add_subdirectory(alphaGo)
+add_subdirectory(zipuzip)
 
 
 
