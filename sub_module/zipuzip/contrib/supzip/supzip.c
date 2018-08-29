@@ -351,7 +351,7 @@ int CompressToZip2(const char* dst, const char* src,  int compress_level, int is
     zf = zipOpen64(dst_zipfile, is_append);
 #endif
     if (zf == NULL) {
-        printf("error opening %s\n",dst_zipfile);
+        printf("zipOpen64: error opening %s\n", dst_zipfile);
 		return -1;
     }
 	
@@ -609,9 +609,11 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 	static int  offset = 0;
 	
 	int ret = lstat(src, &statbuf);
-	if (ret < 0 )
+	if (ret < 0 ){
+		if (strlen(currentdir) > 0)
+			return 0;
 		return -2;
-	
+	}
 	if ( S_ISDIR(statbuf.st_mode) ) 
 	{
 		strcpy(dir, src);
@@ -632,32 +634,45 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 		   return -2;
 		}
 		
+		int dir_nums = 0, file_nums = 0;
 		// Looping get all dirs and files in current dir.
 		while((entry = readdir(dp)) != NULL)
 		{
-		  // lstat(entry->d_name, &statbuf); 	// lstat can't check entry->d_name is dir or file,always is 1.
-		   if(DT_DIR == entry->d_type)
-		   {// Is dirs.
+			// lstat(entry->d_name, &statbuf); 	// lstat can't check entry->d_name is dir or file,always is 1.
+			if(DT_DIR == entry->d_type)
+			{// Is dirs.
+				dir_nums++;
 				if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
 					continue;
 			    size_t size = strlen( dir );
 				while(size > 0 && dir[size-1] == '/' )
 					dir[--size] = '\0';
 				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, SEP, entry->d_name);
-				printf("path:%s\n",childpath);
+				printf("--->Add path:%s\n",childpath);
 				ret = CompressToZipEnc3(dst, childpath, is_append, 0);
 				if (ret < 0) break;
-		   } else {// is file.
+			} else {// is file.
+				file_nums++;
 				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, SEP, entry->d_name); 					
- 				if (-1 == chdir(compresdir)) return -2;
+					if (-1 == chdir(compresdir)) return -2;
 				char *pfile = childpath + offset;
-				printf("Add File:%s pfile=%s\n",childpath, pfile);		
+				printf("--->Add File:%s pfile=%s\n",childpath, pfile);		
 				ret = CompressToZipEnc2(dst, pfile, is_append);
 				if (-1 == chdir(currentdir)) return -2;				
 				if (ret < 0) break;
-		   }
+			}
 		}
 		closedir(dp);
+		// if have empty dirs use placeholder.
+		if (2 == dir_nums && 0 == file_nums) {
+			char placeholder[MAXFILENAME] = {0};
+			snprintf(placeholder, sizeof(placeholder),"%s/.placeholder", dir);
+			ret =fclose(fopen(placeholder,"wb+"));
+			if (ret < 0) return -7;
+			ret = CompressToZipEnc2(dst, placeholder, is_append);
+			if (ret < 0) return -7;
+			printf("### create Empty dir=%s, placeholder=%s\n", dir,placeholder);
+		}
 		return ret;
 	}
 	

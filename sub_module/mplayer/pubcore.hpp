@@ -14,7 +14,7 @@
 #pragma  once
 
 /***************************1.公用系统文件集合***************************/
-#ifdef  __LINUX__
+#ifdef  unix
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/ipc.h>
@@ -884,7 +884,7 @@ debug_write_420p(AVFrame *frame)
 	fwrite(yuv420_data, 1, frame->width*frame->height * 3 / 2, fp);
 	av_yuv420p_freep(yuv420_data);
 #else
-	//write yuv420p
+	//write yuv420p(I420)
 	for (int32_t i = 0; i < frame->height; ++i)
 		fwrite(frame->data[0] + frame->linesize[0] * i, 1, frame->width, fp);
 	for (int32_t i = 0; i < frame->height / 2; ++i)
