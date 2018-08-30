@@ -1,16 +1,19 @@
 
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h> 
+
 #include "supzip.h"
 
 #define WRITEBUFFERSIZE (16384)
 #define MAXFILENAME 	(256)
-#define PASSWD 			"41b1495a0615dc17dbc5f4c74941fc63"
+//#define PASSWD 			"41b1495a0615dc17dbc5f4c74941fc63"
 
 #ifdef unix
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
-
+#include <limits.h> 
 #endif
 
 int main(int argc,const char** argv)
@@ -27,10 +30,13 @@ int main(int argc,const char** argv)
 	char compresdir[MAXFILENAME] = {0};
 	char dstzipfile[MAXFILENAME] = {0};
 
-	if (argc < 4){
+	if (argc < 4 || argc > 5){
 		printf("Usage: cmd [e|d] [*.zip] [src|dir] <opt>\n");
 		return -1;
 	}
+	
+	if (argv[1][0] == 'd')
+		DecompressZipDec(argv[2], argv[3]);
 	if (argv[1][0] == 'e') {
 		if (argc == 4 )
 			CompressToZipEnc(argv[2], argv[3], 1);
@@ -74,18 +80,6 @@ int main(int argc,const char** argv)
 			
 		}
 	}
-	if (argv[1][0] == 'd')
-		DecompressZipDec(argv[2], argv[3]);
-/*
-	if (argc != 4) {
-		printf("Usage: cmd [e|d] *.zip [src|dir]\n");
-		return -1;
-	}
-	if (argv[1][0] == 'e')
-		CompressToZip2(argv[2], argv[3], Z_DEFAULT_COMPRESSION, 1, PASSWD, 1);
-	if (argv[1][0] == 'd')
-		DecompressZip2(argv[2], argv[3], PASSWD, 1);
-*/
 #endif
 
 #else

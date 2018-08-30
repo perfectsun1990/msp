@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 extern ENCDEC_API int IsEncryptSource(const char* src);
+extern ENCDEC_API int CompressToZip(const char* dst, const char* src, bool is_append);
+extern ENCDEC_API int DecompressZip(const char* dst, const char* dir);
 extern ENCDEC_API int CompressToZipEnc(const char* dst, const char* src, bool is_append);
 extern ENCDEC_API int DecompressZipDec(const char* dst, const char* dir);
 #ifdef __cplusplus

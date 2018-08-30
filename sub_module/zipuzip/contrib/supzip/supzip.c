@@ -593,8 +593,117 @@ int CompressToZipEnc2(const char* dst, const char* src, bool is_append)
 }
 
 #ifdef unix
-
+#include <limits.h> 
 #include <dirent.h>
+
+int CompressToZip3(const char* dst, const char* src, int compress_level, int is_append, const char* password, int confuse, bool is_first)
+{
+	char dir[MAXFILENAME] 		= {0};
+	char childpath[MAXFILENAME] = {0};
+	DIR *dp;                
+	struct dirent *entry;   
+	struct stat statbuf;    
+
+	static char currentdir[MAXFILENAME] = {0};
+	static char compresdir[MAXFILENAME] = {0};
+	static int  offset = 0;
+	
+	int ret = lstat(src, &statbuf);
+	if (ret < 0 ){
+		if (strlen(currentdir) > 0)
+			return 0;
+		return -2;
+	}
+	if ( S_ISDIR(statbuf.st_mode) ) 
+	{
+		strcpy(dir, src);
+		if (is_first) 
+		{// eg. /test/abc/--->/test/abc
+			size_t size = strlen( dir );
+			while(size > 0 && dir[size-1] == '/' )
+				dir[--size] = '\0';
+			char *pLastdir = strrchr(dir, '/');
+			offset =  (NULL == pLastdir) ? 0 : pLastdir - dir+1;
+			snprintf(compresdir, sizeof(compresdir), "%s/../", dir);
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			is_first = 0;
+		}
+		if((dp = opendir(dir)) == NULL) {
+		   printf("#can't open dir: %s", dir);
+		   return -2;
+		}
+		
+		int dir_nums = 0, file_nums = 0;
+		// Looping get all dirs and files in current dir.
+		while((entry = readdir(dp)) != NULL)
+		{
+			// lstat(entry->d_name, &statbuf); 	// lstat can't check entry->d_name is dir or file,always is 1.
+			if(DT_DIR == entry->d_type)
+			{// Is dirs.
+				dir_nums++;
+				if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
+					continue;
+			    size_t size = strlen( dir );
+				while(size > 0 && dir[size-1] == '/' )
+					dir[--size] = '\0';
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, SEP, entry->d_name);
+				printf("--->Add path:%s\n",childpath);
+				ret = CompressToZip3(dst, childpath, compress_level, is_append, password, confuse, 0);
+				if (ret < 0) break;
+			} else {// is file.
+				file_nums++;
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, SEP, entry->d_name); 					
+					if (-1 == chdir(compresdir)) return -2;
+				char *pfile = childpath + offset;
+				printf("--->Add File:%s pfile=%s\n",childpath, pfile);		
+				ret = CompressToZip2(dst, pfile, compress_level, is_append, password, confuse);
+				if (-1 == chdir(currentdir)) return -2;				
+				if (ret < 0) break;
+			}
+		}
+		closedir(dp);
+		// if have empty dirs use placeholder.
+		if (2 == dir_nums && 0 == file_nums) {
+			char placeholder[MAXFILENAME] = {0};
+			snprintf(placeholder, sizeof(placeholder),"%s/.placeholder", dir);
+			ret =fclose(fopen(placeholder,"wb+"));
+			if (ret < 0) return -7;
+			ret = CompressToZip2(dst, placeholder, compress_level, is_append, password, confuse);
+			if (ret < 0) return -7;
+			printf("### create Empty dir=%s, placeholder=%s\n", dir,placeholder);
+		}
+		return ret;
+	}
+	
+	if ( S_ISREG(statbuf.st_mode) ) 
+	{
+		if (is_first) 
+		{// eg. /test/abc--->/test/abc
+			size_t size = strlen( src );
+			char *pLastdir = strrchr(src, '/');
+			offset =  (NULL == pLastdir) ? 0 : pLastdir - src+1;			
+			char *pfile = src + offset;
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			ret = getdirs(src, childpath, sizeof(childpath));
+			if (ret <0)
+				snprintf(compresdir, sizeof(compresdir), "%s", currentdir);
+			else				
+				snprintf(compresdir, sizeof(compresdir), "%s", childpath);
+			is_first = 0;
+		}
+		
+		printf("Add File:%s\n",src);		
+		char *pfile = src + offset;
+		if (-1 == chdir(compresdir)) return -2;
+		ret = CompressToZip2(dst, pfile, compress_level, is_append, password, confuse);
+		if (-1 == chdir(currentdir)) return -2; 			
+		return ret;
+	}
+
+	return -2;
+}
 
 int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_first)
 {
@@ -706,6 +815,22 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 }
 #endif
 
+// Normal compress apis.
+int CompressToZip(const char* dst, const char* src, bool is_append)
+{
+#ifdef unix
+	return CompressToZip3(dst, src, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
+#else
+	return CompressToZip2(dst, src, Z_NO_COMPRESSION, is_append, NULL, NULL);
+#endif
+}
+
+int DecompressZip(const char* dst, const char* dir)
+{
+	return DecompressZip2(dst, dir, NULL, 0);
+}
+
+// Encrypt compress apis.
 int CompressToZipEnc(const char* dst, const char* src, bool is_append)
 {
 #ifdef unix
@@ -722,8 +847,10 @@ int DecompressZipDec(const char* dst, const char* dir)
 
 	int need_reset = 0;
 	if (!IsEncryptSource(dst)) {
-		printf("@@@ invalid ccr encrypt source! %s\n", dst);
-		return -6;
+		int ret = DecompressZip2(dst, dir, NULL, 0);
+		if (ret<0)
+			printf("@@@ invalid ccr encrypt source! %s\n", dst);
+		return ret;
 	}else{
 		FILE* fp = fopen(dst, "rb+");
 		if (NULL != fp ) {
