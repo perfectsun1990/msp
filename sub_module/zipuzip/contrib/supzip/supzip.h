@@ -17,14 +17,14 @@ extern "C" {
 #endif
 
 /**
- * @brief 检测src是否是加密源.
+ * @brief 检测加密源(检测src是否是加密后文件).
  * @param src 待检测源文件.(一般是*.ccr)
  * @return 1-是，0-否.
  */
 extern ENCDEC_API int IsEncryptSource(const char* src);
 
 /**
- * @brief 压缩并加密
+ * @brief 压缩并加密(仅可压缩生成加密zip文件).
  * @param dst 最终压缩生成的zip文件.
  * @param src 需要进行压缩的文件或者目录.
  * @param compress_level 需要进行压缩的文件.
@@ -41,8 +41,8 @@ extern ENCDEC_API int IsEncryptSource(const char* src);
 extern ENCDEC_API int CompressToZipEnc(const char* dst, const char* src, bool is_append);
 
 /**
- * @brief 解压并解密
- * @param dst 需要进行解压解密的文件.
+ * @brief 解压并解密(可解压加密和普通zip文件).
+ * @param dst 需要进行解压解密的文件
  * @param dir 解压后输出目录, =NULL则解压到当前目录. 
  * @return 0-成功
  * errcode: 
@@ -51,7 +51,6 @@ extern ENCDEC_API int CompressToZipEnc(const char* dst, const char* src, bool is
 		-3 -获取压缩文件中具体文件信息(dst->file)失败;
 		-4 -获取全局信息(dst)失败;
 		-5 -打开或读取压缩文件的内部文件失败;
-		-6 -dst存在但并不是加密文件格式;
 */
 extern ENCDEC_API int DecompressZipDec(const char* dst, const char* dir);
 
