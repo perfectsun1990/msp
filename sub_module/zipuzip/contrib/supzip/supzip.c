@@ -1,17 +1,48 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdint.h>
+
+#include "zip.h"
+#include "unzip.h"
+
+#ifdef _WIN32
+#define USEWIN32IOAPI
+#include "iowin32.h"
+//Extern headers.
+#include <io.h>
+#include <direct.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <windows.h>
+#include <corecrt_io.h>
+#include <wchar.h>
+#else
+# include <unistd.h>
+# include <utime.h>
+# include <sys/types.h>
+# include <sys/stat.h>
+#endif
+
+#include "supzip.h"
 
 #if (!defined(_WIN32)) && (!defined(WIN32)) && (!defined(__APPLE__))
-        #ifndef __USE_FILE_OFFSET64
-                #define __USE_FILE_OFFSET64
-        #endif
-        #ifndef __USE_LARGEFILE64
-                #define __USE_LARGEFILE64
-        #endif
-        #ifndef _LARGEFILE64_SOURCE
-                #define _LARGEFILE64_SOURCE
-        #endif
-        #ifndef _FILE_OFFSET_BIT
-                #define _FILE_OFFSET_BIT 64
-        #endif
+#ifndef __USE_FILE_OFFSET64
+#define __USE_FILE_OFFSET64
+#endif
+#ifndef __USE_LARGEFILE64
+#define __USE_LARGEFILE64
+#endif
+#ifndef _LARGEFILE64_SOURCE
+#define _LARGEFILE64_SOURCE
+#endif
+#ifndef _FILE_OFFSET_BIT
+#define _FILE_OFFSET_BIT 64
+#endif
 #endif
 
 #ifdef __APPLE__
@@ -24,35 +55,6 @@
 #define FTELLO_FUNC(stream) ftello64(stream)
 #define FSEEKO_FUNC(stream, offset, origin) fseeko64(stream, offset, origin)
 #endif
-
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdint.h>
-
-#ifdef _WIN32
-# include <direct.h>
-# include <io.h>
-#else
-# include <unistd.h>
-# include <utime.h>
-# include <sys/types.h>
-# include <sys/stat.h>
-#endif
-
-#include "zip.h"
-#include "unzip.h"
-
-#ifdef _WIN32
-        #define USEWIN32IOAPI
-        #include "iowin32.h"
-#endif
-
-#include "supzip.h"
 
 #define WRITEBUFFERSIZE (16384)
 #define MAXFILENAME 	(256)
@@ -174,8 +176,11 @@ int getdirs( const char *str, char* buf, int len)
     int32_t i = 0;
 	if ( strlen(str) > (size_t)len )
 		return -2;
-	
-    char *pos = strrchr( str, '/' );
+	const char *pos = NULL;
+	pos = strrchr(str, '/');
+#ifdef WIN32
+	pos = (NULL == pos) ? strrchr(str, '\\') : pos;
+#endif	
     if ( NULL != pos ) {   
         memset( buf, 0, len );
         memcpy( buf, p_str, pos-p_str+1 );
@@ -598,6 +603,7 @@ int CompressToZipEnc2(const char* dst, const char* src, bool is_append)
 
 int CompressToZip3(const char* dst, const char* src, int compress_level, int is_append, const char* password, int confuse, bool is_first)
 {
+	int dir_nums = 0, file_nums = 0;
 	char dir[MAXFILENAME] 		= {0};
 	char childpath[MAXFILENAME] = {0};
 	DIR *dp;                
@@ -634,7 +640,6 @@ int CompressToZip3(const char* dst, const char* src, int compress_level, int is_
 		   return -2;
 		}
 		
-		int dir_nums = 0, file_nums = 0;
 		// Looping get all dirs and files in current dir.
 		while((entry = readdir(dp)) != NULL)
 		{
@@ -731,7 +736,7 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 			size_t size = strlen( dir );
 			while(size > 0 && dir[size-1] == '/' )
 				dir[--size] = '\0';
-			char *pLastdir = strrchr(dir, '/');
+			const char *pLastdir = strrchr(dir, '/');
 			offset =  (NULL == pLastdir) ? 0 : pLastdir - dir+1;
 			snprintf(compresdir, sizeof(compresdir), "%s/../", dir);
 			if (NULL == getcwd(currentdir, sizeof(currentdir)))
@@ -763,7 +768,7 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 			} else {// is file.
 				file_nums++;
 				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, SEP, entry->d_name); 					
-					if (-1 == chdir(compresdir)) return -2;
+				if (-1 == chdir(compresdir)) return -2;
 				char *pfile = childpath + offset;
 				printf("--->Add File:%s pfile=%s\n",childpath, pfile);		
 				ret = CompressToZipEnc2(dst, pfile, is_append);
@@ -790,7 +795,7 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 		if (is_first) 
 		{// eg. /test/abc--->/test/abc
 			size_t size = strlen( src );
-			char *pLastdir = strrchr(src, '/');
+			const char *pLastdir = strrchr(src, '/');
 			offset =  (NULL == pLastdir) ? 0 : pLastdir - src+1;			
 			char *pfile = src + offset;
 			if (NULL == getcwd(currentdir, sizeof(currentdir)))
@@ -813,6 +818,324 @@ int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_
 
 	return -2;
 }
+
+#endif
+
+#ifdef WIN32
+static inline int32_t
+Utf82Unic(const char* utf8, wchar_t* unic, int32_t size)
+{
+	if (!utf8 || !strlen(utf8) || !unic || size <= 0)
+		return 0;
+	wmemset(unic, 0, size);			//Note: F1  details.
+	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0,
+		utf8, -1, NULL, 0);
+	if (iCharNums > size)	return 0;
+	MultiByteToWideChar(CP_UTF8, 0,	//Covt: utf8->utf16
+		utf8, -1, unic, iCharNums);
+	return iCharNums;
+}
+
+static inline int32_t
+Unic2Utf8(const wchar_t* unic, char* utf8, int32_t size)
+{
+	if (!unic || !wcslen(unic) || !utf8 || size <= 0)
+		return 0;
+	memset(utf8, 0, size);			//Note: F1  details.
+	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0,
+		unic, -1, NULL, 0, NULL, NULL);
+	if (iCharNums > size)	return 0;
+	WideCharToMultiByte(CP_UTF8, 0, //Covt: utf16->utf8
+		unic, -1, utf8, iCharNums, NULL, NULL);
+	return iCharNums;
+}
+
+static inline int32_t
+Ansi2Unic(const char* ansi, wchar_t* unic, int32_t size)
+{
+	if (!ansi || !strlen(ansi) || !unic || size <= 0)
+		return 0;
+	wmemset(unic, 0, size);			//Note: F1  details.
+	int32_t iCharNums = MultiByteToWideChar(CP_ACP, 0,
+		ansi, -1, NULL, 0);
+	if (iCharNums > size)	return 0;
+	MultiByteToWideChar(CP_ACP, 0, 	//Covt: ansi->utf16
+		ansi, -1, unic, iCharNums);
+	return iCharNums;
+}
+
+static inline int32_t
+Unic2Ansi(const wchar_t* unic, char* ansi, int32_t size)
+{
+	if (!unic || !wcslen(unic) || !ansi || size <= 0)
+		return 0;
+	memset(ansi, 0, size);			//Note: F1  details.
+	int32_t iCharNums = WideCharToMultiByte(CP_ACP, 0,
+		unic, -1, NULL, 0, NULL, NULL);
+	if (iCharNums > size)	return 0;
+	WideCharToMultiByte(CP_ACP,		//Covt: utf16->ansi
+		0, unic, -1, ansi, iCharNums, NULL, NULL);
+	return iCharNums;
+}
+
+static inline int32_t
+Utf82Ansi(const char *utf8, char* ansi, int32_t size)
+{
+	memset(ansi, 0, size);			//Note: F1  details.
+	int32_t  iSize = strlen(utf8) + 1;
+	wchar_t* pUnic = (wchar_t*)malloc(sizeof(wchar_t)*iSize);// wchar_t[iSize];
+	if (NULL == pUnic)		goto handle_error;
+	int32_t iCharNums = Utf82Unic(utf8, pUnic, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	iCharNums = Unic2Ansi(pUnic, ansi, size);
+	if (iCharNums <= 0)		goto handle_error;
+	free(pUnic);
+	return iCharNums;
+handle_error:
+	if (NULL != pUnic)		free(pUnic);
+	return 0;
+}
+
+static inline int32_t
+Ansi2Utf8(const char *ansi, char* utf8, int32_t size)
+{
+	memset(utf8, 0, size);//Note: F1  details.
+	int32_t  iSize = strlen(ansi) + 1;
+	wchar_t* pUnic = (wchar_t*)malloc(sizeof(wchar_t)*iSize);// wchar_t[iSize];
+	if (NULL == pUnic)		goto handle_error;
+	int32_t iCharNums = Ansi2Unic(ansi, pUnic, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	iCharNums = Unic2Utf8(pUnic, utf8, size);
+	if (iCharNums <= 0)		goto handle_error;
+	free(pUnic);
+	return iCharNums;
+handle_error:
+	if (NULL != pUnic)	free(pUnic);
+	return 0;
+}
+
+bool
+ChdirWrap(const char* ansi)
+{
+	if (NULL == ansi || strlen(ansi) <= 0)
+		goto handle_error;
+	int32_t  iSize = strlen(ansi) + 1;
+	wchar_t* pUnic = (wchar_t*)malloc(sizeof(wchar_t)*iSize);// wchar_t[iSize];
+	if (0 == Ansi2Unic(ansi, pUnic, iSize))
+		goto handle_error;
+	if (-1 == _wchdir(pUnic)) {
+		printf("_wchdir: %s[%s]\n", strerror(errno), pUnic);
+		goto handle_error;
+	}
+	free(pUnic);
+	return true;
+handle_error:
+	if (NULL != pUnic)	free(pUnic);
+	return false;
+}
+
+int CompressToZip3(const char* dst, const char* src, int compress_level, int is_append, const char* password, int confuse, bool is_first)
+{
+	int dir_nums = 0, file_nums = 0;
+	char dir[MAXFILENAME] = { 0 };
+	char tmp[MAXFILENAME] = { 0 };
+	char childpath[MAXFILENAME] = { 0 };
+	static char currentdir[MAXFILENAME] = { 0 };
+	static char compresdir[MAXFILENAME] = { 0 };
+	static int  offset = 0;
+	intptr_t handle;
+	struct _finddata_t findData;
+	struct stat statbuf = { 0 };
+	int ret = stat(src, &statbuf);
+	if (ret != 0) return -2;
+
+	if (_S_IFDIR == (_S_IFDIR & statbuf.st_mode))
+	{
+		strcpy(dir, src);
+		if (is_first)
+		{// eg. /test/abc/--->/test/abc
+			size_t size = strlen(dir);
+			while (size > 0 && dir[size - 1] == '\\')
+				dir[--size] = '\0';
+			char *pLastdir = strrchr(dir, '\\');
+			offset = (NULL == pLastdir) ? 0 : pLastdir - dir + 1;
+			snprintf(compresdir, sizeof(compresdir), "%s\\..\\", dir);
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			is_first = false;
+		}
+		printf("%s is dir!\n", src);
+		snprintf(tmp, sizeof(tmp), "%s\\*.*", dir);
+		if ((handle = _findfirst(tmp, &findData)) == -1)
+			return -2;
+		do {
+			if (findData.attrib & _A_SUBDIR)
+			{
+				dir_nums++;
+				if (strcmp(findData.name, ".") == 0 || strcmp(findData.name, "..") == 0)
+					continue;
+				size_t size = strlen(dir);
+				while (size > 0 && dir[size - 1] == '\\')
+					dir[--size] = '\0';
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, "\\", findData.name);
+				printf("--->Add path:%s\n", childpath);
+				ret = CompressToZip3(dst, childpath, compress_level, is_append, password, confuse, 0);
+				if (ret < 0) break;
+			}
+			else {
+				file_nums++;
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, "\\", findData.name);
+				if (!ChdirWrap(compresdir)) return -2;
+				char *pfile = childpath + offset;
+				printf("--->Add File:%s pfile=%s\n", childpath, pfile);
+				ret = CompressToZip2(dst, pfile, compress_level, is_append, password, confuse);
+				if (!ChdirWrap(currentdir)) return -2;
+				if (ret < 0) break;
+			}
+		} while (_findnext(handle, &findData) == 0);
+		_findclose(handle);//close dir handle.
+						   // if have empty dirs use placeholder.
+		if (2 == dir_nums && 0 == file_nums) {
+			char placeholder[MAXFILENAME] = { 0 };
+			snprintf(placeholder, sizeof(placeholder), "%s/.placeholder", dir);
+			ret = fclose(fopen(placeholder, "wb+"));
+			if (ret < 0) return -7;
+			ret = CompressToZip2(dst, placeholder, compress_level, is_append, password, confuse);
+			if (ret < 0) return -7;
+			printf("### create Empty dir=%s, placeholder=%s\n", dir, placeholder);
+		}
+		return ret;
+	}
+
+	if (_S_IFREG == (_S_IFREG & statbuf.st_mode))
+	{
+		if (is_first)
+		{// eg. /test/abc--->/test/abc
+			size_t size = strlen(src);
+			const char *pLastdir = strrchr(src, '\\');
+			offset = (NULL == pLastdir) ? 0 : pLastdir - src + 1;
+			const char *pfile = src + offset;
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			ret = getdirs(src, childpath, sizeof(childpath));
+			if (ret < 0)
+				snprintf(compresdir, sizeof(compresdir), "%s", currentdir);
+			else
+				snprintf(compresdir, sizeof(compresdir), "%s", childpath);
+			is_first = 0;
+		}
+		printf("Add File:%s\n", src);
+		const char *pfile = src + offset;
+		if (!ChdirWrap(compresdir)) return -2;
+		ret = CompressToZip2(dst, pfile, compress_level, is_append, password, confuse);
+		if (!ChdirWrap(currentdir)) return -2;
+		return ret;
+	}
+	return -2;
+}
+
+int CompressToZipEnc3(const char* dst, const char* src, bool is_append, bool is_first)
+{
+	int dir_nums = 0, file_nums = 0;
+	char dir[MAXFILENAME] = { 0 };
+	char tmp[MAXFILENAME] = { 0 };
+	char childpath[MAXFILENAME] = { 0 };
+	static char currentdir[MAXFILENAME] = { 0 };
+	static char compresdir[MAXFILENAME] = { 0 };
+	static int  offset = 0;
+	intptr_t handle;
+	struct _finddata_t findData;
+	struct stat statbuf = { 0 };
+	int ret = stat(src, &statbuf);
+	if (ret != 0) return -2;
+
+	if (_S_IFDIR == (_S_IFDIR & statbuf.st_mode))
+	{
+		strcpy(dir, src);
+		if (is_first)
+		{// eg. /test/abc/--->/test/abc
+			size_t size = strlen(dir);
+			while (size > 0 && dir[size - 1] == '\\')
+				dir[--size] = '\0';
+			char *pLastdir = strrchr(dir, '\\');
+			offset = (NULL == pLastdir) ? 0 : pLastdir - dir + 1;
+			snprintf(compresdir, sizeof(compresdir), "%s\\..\\", dir);
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			is_first = false;
+		}
+		printf("%s is dir!\n", src);
+		snprintf(tmp, sizeof(tmp), "%s\\*.*", dir);
+		if ((handle= _findfirst(tmp, &findData)) == -1)
+			return -2;
+		do {
+			if (findData.attrib & _A_SUBDIR)
+			{
+				dir_nums++;
+				if (strcmp(findData.name, ".") == 0 || strcmp(findData.name, "..") == 0)
+					continue;
+				size_t size = strlen(dir);
+				while (size > 0 && dir[size - 1] == '\\')
+					dir[--size] = '\0';
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, "\\", findData.name);
+				printf("--->Add path:%s\n", childpath);
+				ret = CompressToZipEnc3(dst, childpath, is_append, false);
+				if (ret < 0) break;
+			} else {
+				file_nums++;
+				snprintf(childpath, sizeof(childpath), "%s%s%s", dir, "\\", findData.name);
+				if (!ChdirWrap(compresdir)) return -2;
+				char *pfile = childpath + offset;
+				printf("--->Add File:%s pfile=%s\n", childpath, pfile);
+				ret = CompressToZipEnc2(dst, pfile, is_append);
+				if (!ChdirWrap(currentdir)) return -2;
+				if (ret < 0) break;
+			}
+		} while (_findnext(handle, &findData) == 0);
+		_findclose(handle);//close dir handle.
+		// if have empty dirs use placeholder.
+		if (2 == dir_nums && 0 == file_nums) {
+			char placeholder[MAXFILENAME] = { 0 };
+			snprintf(placeholder, sizeof(placeholder), "%s\\.placeholder", dir);
+			ret = fclose(fopen(placeholder, "wb+"));
+			if (ret < 0) return -7;
+			if (!ChdirWrap(compresdir)) return -2;
+			char *pfile = placeholder + offset;
+			printf("--->Add File:%s pfile=%s\n", childpath, pfile);
+			ret = CompressToZipEnc2(dst, pfile, is_append);
+			if (!ChdirWrap(currentdir)) return -2;
+			if (ret < 0) return -7;
+			printf("### create Empty dir=%s, placeholder=%s\n", dir, placeholder);
+		}
+		return ret;
+	}
+
+	if (_S_IFREG == (_S_IFREG & statbuf.st_mode))
+	{
+		if (is_first)
+		{// eg. /test/abc--->/test/abc
+			size_t size = strlen(src);
+			const char *pLastdir = strrchr(src, '\\');
+			offset = (NULL == pLastdir) ? 0 : pLastdir - src + 1;
+			const char *pfile = src + offset;
+			if (NULL == getcwd(currentdir, sizeof(currentdir)))
+				return -4;
+			ret = getdirs(src, childpath, sizeof(childpath));
+			if (ret < 0)
+				snprintf(compresdir, sizeof(compresdir), "%s", currentdir);
+			else
+				snprintf(compresdir, sizeof(compresdir), "%s", childpath);
+			is_first = 0;
+		}	
+		const char *pfile = src + offset;
+		printf("Add File:%s\t pfile=%s\n", src, pfile);
+		if (!ChdirWrap(compresdir)) return -2; 
+		ret = CompressToZipEnc2(dst, pfile,  is_append);
+		if (!ChdirWrap(currentdir)) return -2;
+		return ret;
+	}
+	return -2;
+}
 #endif
 
 // Normal compress apis.
@@ -820,13 +1143,24 @@ int CompressToZip(const char* dst, const char* src, bool is_append)
 {
 #ifdef unix
 	return CompressToZip3(dst, src, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
-#else
-	return CompressToZip2(dst, src, Z_NO_COMPRESSION, is_append, NULL, NULL);
 #endif
+#ifdef WIN32
+	return CompressToZip3(dst, src, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
+#endif
+	return CompressToZip2(dst, src, Z_NO_COMPRESSION, is_append, NULL, NULL);
 }
 
 int DecompressZip(const char* dst, const char* dir)
 {
+#ifdef WIN32
+	int ret = 0;
+	char dir_tmp[512] = { 0 }, dst_tmp[512] = { 0 };
+	ret = Utf82Ansi(dir, dir_tmp, sizeof(dir_tmp));
+	if (ret <= 0) return -2;
+	ret = Utf82Ansi(dst, dst_tmp, sizeof(dst_tmp));
+	if (ret <= 0) return -1;
+	return DecompressZip2(dst_tmp, dir_tmp, NULL, 0);
+#endif
 	return DecompressZip2(dst, dir, NULL, 0);
 }
 
@@ -835,12 +1169,20 @@ int CompressToZipEnc(const char* dst, const char* src, bool is_append)
 {
 #ifdef unix
 	return CompressToZipEnc3(dst, src, is_append, 1);
-#else
-	return CompressToZipEnc2(dst, src, is_append);
 #endif
+#ifdef WIN32
+	int ret = 0;
+	char src_tmp[512] = { 0 }, dst_tmp[512] = {0};
+	ret = Utf82Ansi(src, src_tmp, sizeof(src_tmp));
+	if (ret <= 0) return -2;
+	ret = Utf82Ansi(dst, dst_tmp, sizeof(dst_tmp));
+	if (ret <= 0) return -1;
+	return CompressToZipEnc3(dst_tmp, src_tmp, is_append, 1);
+#endif
+	return CompressToZipEnc2(dst, src, is_append);
 }
 
-int DecompressZipDec(const char* dst, const char* dir)
+int DecompressZipDec2(const char* dst, const char* dir)
 {
 	const char header[4] = {'S','C','C','R'};
 	const char ziphdr[4] = {0x50, 0x4B, 0x03, 0x04};
@@ -873,6 +1215,19 @@ int DecompressZipDec(const char* dst, const char* dir)
 	return ret;
 }
 
+int DecompressZipDec(const char* dst, const char* dir)
+{
+#ifdef WIN32
+	int ret = 0;
+	char dir_tmp[512] = { 0 }, dst_tmp[512] = { 0 };
+	ret = Utf82Ansi(dir, dir_tmp, sizeof(dir_tmp));
+	if (ret <= 0) return -2;
+	ret = Utf82Ansi(dst, dst_tmp, sizeof(dst_tmp));
+	if (ret <= 0) return -1;
+	return DecompressZipDec2(dst_tmp, dir_tmp);
+#endif
+	return DecompressZipDec2(dst, dir);
+}
 
 #ifdef DEBUG_TEST
 int main(int argc,const char** argv)

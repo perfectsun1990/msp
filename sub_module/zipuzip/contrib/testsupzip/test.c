@@ -38,8 +38,10 @@ int main(int argc,const char** argv)
 	if (argv[1][0] == 'd')
 		DecompressZipDec(argv[2], argv[3]);
 	if (argv[1][0] == 'e') {
-		if (argc == 4 )
-			CompressToZipEnc(argv[2], argv[3], 1);
+		if (argc == 4) {
+			realpath(argv[2], dstzipfile);
+			return CompressToZipEnc(dstzipfile, argv[3], 1);
+		}
 		if (argc == 5 && argv[4][0] == '1')
 		{	
 			realpath(argv[2], dstzipfile);
@@ -75,16 +77,15 @@ int main(int argc,const char** argv)
 			}	
 			if ( S_ISREG(statbuf.st_mode) ) 
 			{
-				CompressToZipEnc(argv[2], argv[3], 1);
+				return CompressToZipEnc(argv[2], argv[3], 1);
 			}
-			
 		}
 	}
 #endif
 
 #else
 	printf("begin to compress....\n");
-	if (CompressToZipEnc("E:\\123.zip", "E:\\av-test\\10s.mp4", 1) < 0)
+	if (CompressToZipEnc("E:\\123.zip", "E:\\ÖÐÎÄ\\Òì³£.txt", 1) < 0)
 		return -1;
 	printf("begin to decompress....\n");
 	if (DecompressZipDec("E:\\123.zip", "E:\\123")< 0)

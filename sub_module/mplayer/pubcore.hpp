@@ -35,6 +35,12 @@
 #ifdef  WIN32
 #include <windows.h>
 #include <corecrt_io.h>
+#include <io.h>
+#include <direct.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <corecrt_io.h>
+#include <wchar.h>
 #endif
 #ifdef __cplusplus
 #include <iostream>
@@ -139,6 +145,97 @@ StrEffect(const char* dev_name)
 		&& '\t' != dev_name[0] && '\r' != dev_name[0] && '\n' != dev_name[0]);
 }
 
+static inline int
+__mkdir(const char* dirname)
+{
+	int ret = 0;
+#ifdef _WIN32
+	ret = _mkdir(dirname);
+#elif unix
+	ret = mkdir(dirname, 0775);
+#elif __APPLE__
+	ret = mkdir(dirname, 0775);
+#endif
+	return ret;
+}
+
+static inline int
+FiltFile(const char *str, char* buf, int len)
+{
+	char* p_str = (char*)str;
+	int32_t i = 0, str_len = strlen(str);
+	if (str_len > len)
+		return -2;
+	const char *pos = strrchr(str, '/');
+	if (NULL != pos) {
+		memset(buf, 0, len);
+		memcpy(buf, p_str + (pos - p_str + 1), str_len - (pos - str));
+		return 0;
+	}
+	return -1;
+}
+
+static inline int
+FiltDirc(const char *str, char* buf, int len)
+{
+	char* p_str = (char*)str;
+	int32_t i = 0;
+	if (strlen(str) > (size_t)len)
+		return -2;
+	const char *pos = NULL;
+	pos = strrchr(str, '/');
+#ifdef WIN32
+	pos = (NULL == pos) ? strrchr(str, '\\') : pos;
+#endif	
+	if (NULL != pos) {
+		memset(buf, 0, len);
+		memcpy(buf, p_str, pos - p_str + 1);
+		return 0;
+	}
+	return -1;
+}
+
+static inline int
+MakeDir(char *newdir)
+{
+	char *buffer = NULL;
+	char *p = NULL;
+	int  len = (int)strlen(newdir);
+	if (len <= 0)	return 0;
+	buffer = (char*)malloc(len + 1);
+	if (buffer == NULL){
+		printf("Error allocating memory\n");
+		return -1;
+	}
+	strcpy(buffer, newdir);
+	if (buffer[len - 1] == '/') {
+		buffer[len - 1] = '\0';
+	}
+	if (__mkdir(buffer) == 0){
+		free(buffer);
+		return 1;
+	}
+	p = buffer + 1;
+	while (1) {
+		char hold;
+		while (*p && *p != '\\' && *p != '/')
+			p++;
+		hold = *p;
+		*p = 0;
+		if ((__mkdir(buffer) == -1) && (errno == ENOENT)){
+			printf("couldn't create directory %s\n", buffer);
+			free(buffer);
+			return 0;
+		}
+		if (hold == 0)
+			break;
+		*p++ = hold;
+	}
+	free(buffer);
+	return 1;
+}
+
+// cpp.
 static inline std::vector<std::string>
 StrSplits(std::string str, std::string pattern)
 {
@@ -194,25 +291,25 @@ Utf82Unic(const char* utf8, wchar_t* unic, int32_t size)
 	if (!utf8 || !strlen(utf8) || !unic || size <= 0)
 		return 0;
 	wmemset(unic, 0, size);			//Note: F1  details.
-	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0, 
-		utf8, -1, nullptr, 0);
+	int32_t iCharNums = MultiByteToWideChar(CP_UTF8, 0,
+		utf8, -1, NULL, 0);
 	if (iCharNums > size)	return 0;
 	MultiByteToWideChar(CP_UTF8, 0,	//Covt: utf8->utf16
-		 utf8, -1, unic, iCharNums);
+		utf8, -1, unic, iCharNums);
 	return iCharNums;
 }
 
 static inline int32_t
 Unic2Utf8(const wchar_t* unic, char* utf8, int32_t size)
 {
-	if ( !unic || !wcslen(unic) || !utf8 || size <= 0)
+	if (!unic || !wcslen(unic) || !utf8 || size <= 0)
 		return 0;
 	memset(utf8, 0, size);			//Note: F1  details.
-	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0, 
-		unic, -1, nullptr, 0, nullptr, nullptr);
+	int32_t iCharNums = WideCharToMultiByte(CP_UTF8, 0,
+		unic, -1, NULL, 0, NULL, NULL);
 	if (iCharNums > size)	return 0;
 	WideCharToMultiByte(CP_UTF8, 0, //Covt: utf16->utf8
-		unic, -1, utf8, iCharNums, nullptr, nullptr);
+		unic, -1, utf8, iCharNums, NULL, NULL);
 	return iCharNums;
 }
 
@@ -223,7 +320,7 @@ Ansi2Unic(const char* ansi, wchar_t* unic, int32_t size)
 		return 0;
 	wmemset(unic, 0, size);			//Note: F1  details.
 	int32_t iCharNums = MultiByteToWideChar(CP_ACP, 0,
-		ansi, -1, nullptr, 0);		
+		ansi, -1, NULL, 0);
 	if (iCharNums > size)	return 0;
 	MultiByteToWideChar(CP_ACP, 0, 	//Covt: ansi->utf16
 		ansi, -1, unic, iCharNums);
@@ -237,31 +334,50 @@ Unic2Ansi(const wchar_t* unic, char* ansi, int32_t size)
 		return 0;
 	memset(ansi, 0, size);			//Note: F1  details.
 	int32_t iCharNums = WideCharToMultiByte(CP_ACP, 0,
-		unic, -1, nullptr, 0, nullptr, nullptr);
+		unic, -1, NULL, 0, NULL, NULL);
 	if (iCharNums > size)	return 0;
 	WideCharToMultiByte(CP_ACP,		//Covt: utf16->ansi
-		0, unic, -1, ansi, iCharNums, nullptr, nullptr);
+		0, unic, -1, ansi, iCharNums, NULL, NULL);
 	return iCharNums;
+}
+
+static inline int32_t
+Utf82Ansi(const char *utf8, char* ansi, int32_t size)
+{
+	memset(ansi, 0, size);			//Note: F1  details.
+	int32_t  iSize = strlen(utf8) + 1;
+	wchar_t* pUnic = (wchar_t*)malloc(sizeof(wchar_t)*iSize);// wchar_t[iSize];
+	if (NULL == pUnic)		goto handle_error;
+	int32_t iCharNums = Utf82Unic(utf8, pUnic, iSize);
+	if (iCharNums <= 0)		goto handle_error;
+	iCharNums = Unic2Ansi(pUnic, ansi, size);
+	if (iCharNums <= 0)		goto handle_error;
+	free(pUnic);
+	return iCharNums;
+handle_error:
+	if (NULL != pUnic)		free(pUnic);
+	return 0;
 }
 
 static inline int32_t
 Ansi2Utf8(const char *ansi, char* utf8, int32_t size)
 {
-	memset(utf8, 0, size);			//Note: F1  details.
-	int32_t  iSize = strlen(ansi)+1;
-	wchar_t* pUnic = new wchar_t[iSize];
-	if (nullptr == pUnic)	goto handle_error;
+	memset(utf8, 0, size);//Note: F1  details.
+	int32_t  iSize = strlen(ansi) + 1;
+	wchar_t* pUnic = (wchar_t*)malloc(sizeof(wchar_t)*iSize);// wchar_t[iSize];
+	if (NULL == pUnic)		goto handle_error;
 	int32_t iCharNums = Ansi2Unic(ansi, pUnic, iSize);
 	if (iCharNums <= 0)		goto handle_error;
 	iCharNums = Unic2Utf8(pUnic, utf8, size);
 	if (iCharNums <= 0)		goto handle_error;
-	delete[] pUnic;
+	free(pUnic);
 	return iCharNums;
 handle_error:
-	if (nullptr != pUnic)	delete[] pUnic;
+	if (NULL != pUnic)	free(pUnic);
 	return 0;
 }
 
+// cpp.
 static std::wstring
 Astr2Wstr(const std::string& ansi)
 {
