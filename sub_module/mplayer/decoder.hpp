@@ -5,12 +5,13 @@
 typedef struct AdecConfig
 {
 	bool									pauseflag{ false };
-;
+	bool									enablehdw{ false };
 }AdecConfig;
 
 typedef struct VdecConfig
 {
 	bool									pauseflag{ false };
+	bool									enablehdw{ false };
 }VdecConfig;
 
 class IDecoderObserver
@@ -47,7 +48,6 @@ public:
 		createVideoDecoder(std::shared_ptr<IDecoderObserver> observer = nullptr);
 };
 
-// 解码器
 class AudioDecoder :public IDecoder
 {
 public:
@@ -77,7 +77,7 @@ private:
 
 	std::mutex					m_cmutex;
 	std::shared_ptr<MRframe>	m_acache{ nullptr };
-	std::shared_ptr<AdecConfig>	m_config;				//配置参数
+	std::shared_ptr<AdecConfig>	m_config;
 	std::thread 				m_worker;
 	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;
 	
@@ -87,7 +87,6 @@ private:
 	AVCodecContext*				m_codec_ctx{ nullptr };
 };
 
-// 解码器
 class VideoDecoder :public IDecoder
 {
 public:
@@ -117,7 +116,7 @@ private:
 
 	std::mutex					m_cmutex;
 	std::shared_ptr<MRframe>	m_vcache{ nullptr };
-	std::shared_ptr<VdecConfig>	m_config;				//配置参数
+	std::shared_ptr<VdecConfig>	m_config;
 	std::thread 				m_worker;
 	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;	
 	

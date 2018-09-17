@@ -220,7 +220,7 @@ int32_t main(int32_t argc, char *argv[])
 			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
 #endif
 		mp1->start();
-		//mp2->start();
+		mp2->start();
 #if TEST_REOPEN// 3 reopen thread_safe test
 		for (int32_t i=0 ;i<3; ++i)
 		{

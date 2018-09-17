@@ -13,7 +13,7 @@ MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IDemuxerObserver
 {
 	SET_STATUS(m_status,E_INVALID);
 	
-	if (!StrEffect(inputf))	return;
+	if (!IsStrEffect(inputf))	return;
 
 	m_config = std::make_shared<MdmxConfig>();
 	m_config->urls = inputf;
@@ -42,84 +42,84 @@ MediaDemuxer::start(void)
 	m_signal_quit = false;
 	m_worker = std::thread([&](void)
 	{
-		while (!m_signal_quit)
+		for (int64_t loop=0; !m_signal_quit; ++loop, m_last_loop =av_gettime())
 		{
-			// 1.探测并处理pause动作.
-			if (m_config->pauseflag)
-			{//send av cache packets to callback....
+			// Send pause packets to observer.
+			if (m_config->pauseflag) {
+				SET_STATUS(m_status, E_PAUSING);
 				if (!m_observer.expired()) {
 					m_observer.lock()->onMPkt(m_acache);
 					m_observer.lock()->onMPkt(m_vcache);
 				}
-				av_usleep(10 * 1000);//less then this.
+				sleepMs(STANDARDTK);
 				continue;
 			}
-			// 2.探测并处理reset动作.
+			// General new packets for demuxer.
+			int32_t	ret = -1;
 			std::shared_ptr<MPacket> av_pkt = std::make_shared<MPacket>();
 			if (!m_fmtctx || m_config->urls.compare(m_fmtctx->filename))
 				m_signal_rset = true;
-			if (m_signal_rset)
-			{
-				if (!resetMudemuxer(true))   break;
+			if (m_signal_rset) {
+				if (!resetMudemuxer(true)) {
+					SET_STATUS(m_status, E_STRTERR);
+					for(ret=0;ret<300 && !m_signal_quit;++ret)
+						sleepMs(STANDARDTK);//3s.
+					continue;
+				}
 				SET_PROPERTY(av_pkt->prop, P_BEGP);
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
 			}
-
-			// 3.探测并处理seekp动作.
-			if (nullptr == av_pkt->ppkt || !handleSeekActs(m_config->seek_time))
-				break;
-
-			// 4.读取解码前data数据.
-			int32_t	ret = -1;
-			if ((ret = av_read_frame(m_fmtctx, av_pkt->ppkt)) < 0)
-			{
-				if (ret != AVERROR_EOF) {
-					av_log(nullptr, AV_LOG_ERROR, "av_read_frame failed! ret=%d\n", ret);
-					break;
-				}
-				av_usleep(10 * 1000);
+			// Seek and read frame from source.
+			if (nullptr == av_pkt->ppkt || !handleSeekActs(m_config->seek_time)) {
+				SET_STATUS(m_status, E_RUNNERR);
+				sleepMs(STANDARDTK);
 				continue;
 			}
-
-			// 5.处理媒体属性及封包.
+			if ((ret = av_read_frame(m_fmtctx, av_pkt->ppkt)) < 0) {
+				SET_STATUS(m_status, E_RUNNERR);
+				if (ret != AVERROR_EOF) 
+					err("av_read_frame failed! ret=%s\n", averr2str(ret));
+				m_signal_rset = IsNetStream(m_fmtctx->filename);
+				sleepMs(STANDARDTK);
+				continue;
+			}
 			av_pkt->type = m_fmtctx->streams[av_pkt->ppkt->stream_index]->codecpar->codec_type;
 			av_pkt->sttb = m_fmtctx->streams[av_pkt->ppkt->stream_index]->time_base;
 			av_pkt->upts = av_pkt->ppkt->pts * av_q2d(av_pkt->sttb);
 			av_pkt->ufps = (av_pkt->type == AVMEDIA_TYPE_VIDEO) ? m_av_fps : av_pkt->ufps;
 			if ((ret = avcodec_parameters_copy(av_pkt->pars, m_fmtctx->streams[av_pkt->ppkt->stream_index]->codecpar)) < 0) {
-				av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
+				SET_STATUS(m_status, E_RUNNERR);
+				err("avcodec_parameters_copy failed! ret=%d\n", ret);
 				break;
 			}
-			if (av_pkt->type == AVMEDIA_TYPE_AUDIO)
-			{// update audio cache and status.
+			if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {// update audio cache and status.
 				if (!m_seek_apkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_apkt = true;
 				}
 				m_acache->upts = av_pkt->upts;
 			}
-			if (av_pkt->type == AVMEDIA_TYPE_VIDEO)
-			{// update video cache and status.
+			if (av_pkt->type == AVMEDIA_TYPE_VIDEO) {// update video cache and status.
 				if (!m_seek_vpkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_vpkt = true;
 				}
 				m_vcache->upts = av_pkt->upts;
 			}
-
-			// 6.callback...
+			// Send media packets to observer.
 			if (!m_observer.expired())
 				m_observer.lock()->onMPkt(av_pkt);
+			SET_STATUS(m_status, E_RUNNING);
 		}
-		av_log(nullptr, AV_LOG_WARNING, "Media Demuxer finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Media Demuxer finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
 void
 MediaDemuxer::stopd(bool stop_quik)
 {
-	CHK_RETURN(E_STARTED != status());
+	CHK_RETURN(E_STOPPED == status());
 	SET_STATUS(m_status, E_STOPING);
 	m_signal_quit = true;
 	if (m_worker.joinable()) m_worker.join();
@@ -197,7 +197,7 @@ MediaDemuxer::handleSeekActs(int64_t seek_tp)
 		cfg.seek_time = (seek_tp < 0) ? 0 : seek_tp;
 		if (av_seek_frame(m_fmtctx, -1, cfg.seek_time + m_fmtctx->start_time, cfg.seek_flag) < 0)
 		{
-			av_log(nullptr, AV_LOG_ERROR, "Can't seek stream: %lld", cfg.seek_time);
+			err("Can't seek stream: %lld", cfg.seek_time);
 			return false;
 		}
 		m_seek_done = true;
@@ -257,12 +257,36 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 		{
 			// 2.Fill m_fmtctx and m_fmtctx->iformat<AVInputFormat> etc.
 			int32_t ret = -1;
-			if ((ret = avformat_open_input(&m_fmtctx, m_config->urls.c_str(), nullptr, nullptr)) < 0) {
-				av_log(nullptr, AV_LOG_ERROR, "Open file failed! urls=%s!\n", m_config->urls.c_str());
+			// Policy for connect timeout,protcol etc...
+			AVDictionary *opts = nullptr;
+			if (IsNetStream(m_config->urls.c_str()))
+			{
+				av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
+				av_dict_set(&opts, "rtmp_transport", "tcp", 0); //rtmp default.
+				av_dict_set(&opts, "fflags", "nobuffer", 0);	//specify don't cache.buffersize
+				av_dict_set(&opts, "stimeout", "3000000", 0);	//connect delay 3s.
+			}
+			// Policy for resove av_read_frame block,play low delay.
+			m_fmtctx = avformat_alloc_context();
+			m_fmtctx->probesize		= 128*1024;				//def:5M,can be set smaller.
+			m_fmtctx->max_delay		= 100*1000;				//m_fmtctx->flush_packets = 1;
+			m_fmtctx->max_analyze_duration = 1000000;		//rapid load, max_duration:2s
+			m_fmtctx->interrupt_callback.opaque		= this;
+			m_fmtctx->interrupt_callback.callback	= [](void* ctx)->int32_t {
+				MediaDemuxer* pthis = (MediaDemuxer*)ctx;	//break when read frame block.
+				if ((av_gettime() - pthis->m_last_loop) > 10*1000*1000) {
+					war("--->>> Hi! stream is diconnected!\n");
+					pthis->m_last_loop = av_gettime();
+					return AVERROR_EOF;
+				}
+				return 0;
+			};
+			if ((ret = avformat_open_input(&m_fmtctx, m_config->urls.c_str(), NULL, &opts)) < 0) {
+				err("Open file failed! urls=%s!\n", m_config->urls.c_str());
 				return false;
 			}
 			if ((ret = avformat_find_stream_info(m_fmtctx, nullptr)) < 0) {
-				av_log(nullptr, AV_LOG_ERROR, "Find stream info failed!%s\n", m_config->urls.c_str());
+				err("Find stream info failed!%s\n", m_config->urls.c_str());
 				return false;
 			}
 			for (uint32_t i = 0; i < m_fmtctx->nb_streams; i++)

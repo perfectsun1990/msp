@@ -351,7 +351,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			static std::once_flag once;
 			std::call_once(once, [&](void)->void
 			{// Warning: Inner will close relative window. Ensure call once!
-				m_config->window_driv = StrEffect(m_config->window_driv.c_str())
+				m_config->window_driv = IsStrEffect(m_config->window_driv.c_str())
 					? m_config->window_driv.c_str() : effort_driver_name;
 				if (SDL_VideoInit(m_config->window_driv.c_str()))
 					err("SDL_VideoInit %s\n\n", SDL_GetError());
@@ -374,7 +374,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 					effort_device_name = (char*)device;
 				out("	#%d: %s\n", i, device);
 			}
-			m_config->window_disp = StrEffect(m_config->window_disp.c_str())
+			m_config->window_disp = IsStrEffect(m_config->window_disp.c_str())
 				? m_config->window_disp.c_str() : effort_device_name;
 			out("--->Using video device: %s\n\n", m_config->window_disp.c_str());
 		}
@@ -408,8 +408,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 		m_window = (nullptr == m_window) ? m_sample : m_window;
 		SDL_ShowWindow(m_window);// It's important for reopen window.
 		SDL_SetWindowBordered(m_window, SDL_TRUE);//窗体边界
-		
-		
+
 		// 4.打开视频渲染驱动
 		int32_t best_effort_rdrdrv  = 0;
 		if ((effort_rdrdrv_nums = SDL_GetNumRenderDrivers()) <= 0)
@@ -424,13 +423,14 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 				if (SDL_GetRenderDriverInfo(i, &rdrdrv)) continue;
 				m_config->vcodec_pars.rdrdrvs.insert(std::pair<int32_t, std::string>(i, rdrdrv.name));
 				if (!strcmp(rdrdrv.name, "direct3d"))
-					SDL_GetRenderDriverInfo((best_effort_rdrdrv = i), &rdrdrv);
-				if (StrEffect(m_config->window_rdrv.c_str())
+					best_effort_rdrdrv = i;
+				if (IsStrEffect(m_config->window_rdrv.c_str())
 					&& !strcmp(rdrdrv.name, m_config->window_rdrv.c_str()) )
 					best_effort_rdrdrv = i;
 				out("	#%d %s\n", i, rdrdrv.name);
 			}
-			m_config->window_rdrv = StrEffect(m_config->window_rdrv.c_str())
+			SDL_GetRenderDriverInfo(best_effort_rdrdrv, &rdrdrv);
+			m_config->window_rdrv = IsStrEffect(m_config->window_rdrv.c_str())
 				? m_config->window_rdrv.c_str() : rdrdrv.name;
 			out("--->Using render driver: %s\n\n", m_config->window_rdrv.c_str());
 		}
@@ -738,7 +738,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 			static std::once_flag once;
 			std::call_once(once, [&](void)->void
 			{// Warning: Inner will close relative window. Ensure call once!
-				m_config->speakr_driv = StrEffect(m_config->speakr_driv.c_str())
+				m_config->speakr_driv = IsStrEffect(m_config->speakr_driv.c_str())
 					? m_config->speakr_driv.c_str() : effort_driver_name;
 				if (SDL_AudioInit(m_config->speakr_driv.c_str()))
 					err("SDL_AudioInit %s\n\n", SDL_GetError());
@@ -769,7 +769,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 					effort_device_name = (char*)device;
 				out("	#%d: %s\n", i, device);
 			}
-			m_config->speakr_name = StrEffect(m_config->speakr_name.c_str())
+			m_config->speakr_name = IsStrEffect(m_config->speakr_name.c_str())
 				? m_config->speakr_name.c_str() : effort_device_name;
 		}
 		m_audio_devID = SDL_OpenAudioDevice(m_config->speakr_name.c_str(), 0,

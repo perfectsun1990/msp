@@ -139,10 +139,16 @@ const static log_rank_t	_log_rank =	  LOG_MSG;
  */
 
 static inline bool
-StrEffect(const char* dev_name)
+IsStrEffect(const char* url)
 {
-	return (nullptr != dev_name  && '\0' != dev_name[0] && ' ' != dev_name[0]
-		&& '\t' != dev_name[0] && '\r' != dev_name[0] && '\n' != dev_name[0]);
+	return (nullptr != url  && '\0' != url[0] && ' ' != url[0]
+		&& '\t' != url[0] && '\r' != url[0] && '\n' != url[0]);
+}
+
+static inline bool
+IsNetStream(const char* url) {
+	return (strstr(url, "rtsp:") || strstr(url, "rtmp:")
+		|| strstr(url, "mms:") || strstr(url, "http:"));
 }
 
 static inline int
@@ -651,13 +657,20 @@ typedef enum STATUS
 {
 	E_INVALID = -1,
 	E_INITRES,
+
 	E_STRTING,
+	E_RUNNING,
+	E_PAUSING,
 	E_STARTED,
 	E_STOPING,
 	E_STOPPED,
-	E_PAUSING,
+
+	E_STRTERR,
+	E_RUNNERR,
+	E_STOPERR,
 }STATUS;//Ext...
 
+#define STANDARDTK								(10)
 #define CHK_RETURN(x) do{ if(x) return; }		while (0)
 #define SET_STATUS(x, y) do{ (x) = (y); }		while (0)
 
@@ -677,8 +690,8 @@ typedef enum PROPTS
 #define CLR_PROPERTY(x,y)						BCLR(x,y)
 #define CHK_PROPERTY(x,y)						BCHK(x,y)
 
-#define MAX_AUDIO_Q_SIZE						5
-#define MAX_VIDEO_Q_SIZE						MAX_AUDIO_Q_SIZE
+#define MAX_AUDIO_Q_SIZE						(3)
+#define MAX_VIDEO_Q_SIZE						(MAX_AUDIO_Q_SIZE)
 
 //Demuxer->...->Enmuxer.
 struct MPacket
@@ -722,6 +735,19 @@ struct MRframe
 	AVCodecParameters*	pars{ nullptr };
 	AVFrame* 			pfrm{ nullptr };
 };
+
+static void
+sleepMs(int64_t delay){
+	return std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+}
+
+static char*
+averr2str(int num) 
+{
+	static char strerr[512] = { 0 };
+	memset(strerr, 0, sizeof(strerr));
+	return (av_strerror(num, strerr, sizeof(strerr))) ? NULL : strerr;
+}
 
 static void
 audio_frame_freep(AVFrame** frame)

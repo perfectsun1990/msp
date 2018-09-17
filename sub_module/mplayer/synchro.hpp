@@ -41,7 +41,6 @@ protected:
 	virtual ~ISynchro() = default;
 };
 
-//媒体同步机
 class MediaSynchro : public ISynchro
 {
 public:
@@ -67,7 +66,7 @@ private:
 	std::atomic<STATUS>					m_status{ E_INVALID };
 	
 	std::mutex							m_cmutex;
-	std::shared_ptr<MSynConfig>			m_config; //配置参数
+	std::shared_ptr<MSynConfig>			m_config;
 
 	std::atomic<bool>					m_signalAquit{ true };
 	std::atomic<bool>					m_signalArset{ true };

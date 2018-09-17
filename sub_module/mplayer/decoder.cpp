@@ -2,6 +2,28 @@
 #include "pubcore.hpp"
 #include "decoder.hpp"
 
+typedef enum AVPixelFormat(*AVGetFormatCb)(
+	struct AVCodecContext *s, const enum AVPixelFormat * fmt);
+
+AVHWAccel *avfind_hwaccel_codec(enum AVCodecID codec_id,int32_t pix_fmt)
+{
+	AVHWAccel *hwaccel = NULL;
+	while ((hwaccel = av_hwaccel_next(hwaccel))) {
+		if (hwaccel->id == codec_id)
+			break;
+	}
+	return hwaccel;
+}
+
+enum AVPixelFormat get_hwaccel_format(struct AVCodecContext *s,
+	const enum AVPixelFormat * fmt)
+{
+	(void)s;
+	(void)fmt;
+	// for now force output to common denominator
+	return AV_PIX_FMT_YUV420P;
+}
+
 std::shared_ptr<IDecoder> IDecoderFactory::createAudioDecoder(std::shared_ptr<IDecoderObserver> observer)
 {
 	return std::make_shared<AudioDecoder>(observer);
@@ -58,7 +80,7 @@ void AudioDecoder::start(void)
 			{
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) 
 				{
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
+					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
 				m_signal_rset = true;
@@ -71,7 +93,7 @@ void AudioDecoder::start(void)
 					break;
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
-				av_log(nullptr, AV_LOG_WARNING, "Reset audio Codecer!\n");
+				war("Reset audio Codecer!\n");
 			}
 			
 			if ( m_config->pauseflag)
@@ -89,7 +111,7 @@ void AudioDecoder::start(void)
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0)
 			{
 				if (ret != AVERROR_EOF) {
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_send_packet failed! ret=%d\n", ret);
+					err("avcodec_send_packet failed! ret=%d\n", ret);
 					break;
 				}
 				av_usleep(10 * 1000);
@@ -104,7 +126,7 @@ void AudioDecoder::start(void)
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0)
 				{
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						av_log(nullptr, AV_LOG_ERROR, "Decoding failed!ret=%d\n", ret);
+						err("Decoding failed!ret=%d\n", ret);
 					break;
 				}
 				
@@ -114,7 +136,7 @@ void AudioDecoder::start(void)
 				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
 				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //这样对于B帧是不对的。av_pkt->upts;
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
+					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
@@ -124,7 +146,7 @@ void AudioDecoder::start(void)
 			}
 			m_decoder_Q.popd(av_pkt);
 		}
-		av_log(nullptr, AV_LOG_WARNING, "Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -200,38 +222,50 @@ bool AudioDecoder::opendCodecer(bool is_decoder)
 	if (is_decoder)
 	{
 		int32_t ret = 0;
+		AVDictionary *opts = nullptr;
+		//av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
 		// Open decoder base on m_codec & m_codec_ctx.
-		if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id)))
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to find decoder for stream #%d\n", m_codec_par->codec_id);
-			return false;
+		if (m_config->enablehdw) {
+			AVHWAccel *hwaccel = avfind_hwaccel_codec(m_codec_par->codec_id, m_codec_par->format);
+			m_codec = avcodec_find_decoder_by_name((hwaccel)?hwaccel->name:"null");
+			if (m_codec != NULL) {
+				if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+					err("Failed to allocate the decoder context for stream !");
+					return false;
+				}
+				if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
+					err("Failed to copy decoder parameters to input decoder context\n");
+					return false;
+				}
+				ret = avcodec_open2(m_codec_ctx, m_codec, &opts);
+				if (ret < 0) {
+					war("no hardware decoder found for codec with id %d", m_codec_ctx->codec_id);
+					return false;
+				}
+			}
 		}
-
-		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec)))
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to allocate the decoder context for stream !");
-			return false;
-		}
-
-		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0)
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to copy decoder parameters to input decoder context\n");
-			return false;
-		}
-
-		// Open decoder base on m_codec & m_codec_ctx.
-		if (	m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO
-			||	m_codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO)
-		{
+		if (nullptr == m_codec) {
+			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
+				err("Failed to find decoder for stream #%d\n", m_codec_par->codec_id);
+				return false;
+			}
+			if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+				err("Failed to allocate the decoder context for stream !");
+				return false;
+			}
+			if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
+				err("Failed to copy decoder parameters to input decoder context\n");
+				return false;
+			}
+			// Open decoder base on m_codec & m_codec_ctx.
 			if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
 				m_codec_ctx->framerate = m_framerate;
-			if ((ret = avcodec_open2(m_codec_ctx, m_codec, nullptr)) < 0) {
-				av_log(nullptr, AV_LOG_ERROR, "Failed to open decoder for stream\n");
+			if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
+				err("Failed to open decoder for stream\n");
 				return false;
 			}
 		}
 	}
-
 	return true;
 }
 
@@ -309,7 +343,7 @@ void VideoDecoder::start(void)
 				|| m_codec_par->height != av_pkt->pars->height)
 			{
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
+					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
 				m_signal_rset = true;
@@ -322,7 +356,7 @@ void VideoDecoder::start(void)
 					break;
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
-				av_log(nullptr, AV_LOG_WARNING, "Reset video Codecer!\n");
+				war("Reset video Codecer!\n");
 			}
 
 			if (m_config->pauseflag)
@@ -340,8 +374,9 @@ void VideoDecoder::start(void)
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0)
 			{
 				if (ret != AVERROR_EOF) {
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_send_packet failed! ret=%d\n", ret);
-					break;
+					err("avcodec_send_packet failed! ret=%d\n", ret);					
+					m_decoder_Q.popd(av_pkt);
+					m_signal_rset = true;
 				}
 				av_usleep(10 * 1000);
 				continue;
@@ -355,7 +390,7 @@ void VideoDecoder::start(void)
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0)
 				{
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						av_log(nullptr, AV_LOG_ERROR, "Decoding failed!ret=%d\n", ret);
+						err( "Decoding failed!ret=%d\n", ret);
 					break;
 				}
 				
@@ -365,7 +400,7 @@ void VideoDecoder::start(void)
 				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
 				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //这样对于B帧是不对的。av_pkt->upts;
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
-					av_log(nullptr, AV_LOG_ERROR, "avcodec_parameters_copy failed! ret=%d\n", ret);
+					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
@@ -375,7 +410,7 @@ void VideoDecoder::start(void)
 			}
 			m_decoder_Q.popd(av_pkt);
 		}
-		av_log(nullptr, AV_LOG_WARNING, "Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -474,33 +509,46 @@ VideoDecoder::opendCodecer(bool is_decoder)
 	if (is_decoder)
 	{
 		int32_t ret = 0;
+		AVDictionary *opts = nullptr;
+		//av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
 		// Open decoder base on m_codec & m_codec_ctx.
-		if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id)))
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to find decoder for stream #%d\n", m_codec_par->codec_id);
-			return false;
+		if (m_config->enablehdw) {
+			AVHWAccel *hwaccel = avfind_hwaccel_codec(m_codec_par->codec_id, m_codec_par->format);
+			m_codec = avcodec_find_decoder_by_name((hwaccel) ? hwaccel->name : "null");
+			if (m_codec != NULL) {
+				if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+					err("Failed to allocate the decoder context for stream !");
+					return false;
+				}
+				if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
+					err("Failed to copy decoder parameters to input decoder context\n");
+					return false;
+				}
+				ret = avcodec_open2(m_codec_ctx, m_codec, &opts);
+				if (ret < 0) {
+					war("no hardware decoder found for codec with id %d", m_codec_ctx->codec_id);
+					return false;
+				}
+			}
 		}
-
-		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) 
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to allocate the decoder context for stream !");
-			return false;
-		}
-
-		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0)
-		{
-			av_log(nullptr, AV_LOG_ERROR, "Failed to copy decoder parameters to input decoder context\n");
-			return false;
-		}
-
-		// Open decoder base on m_codec & m_codec_ctx.
-		if (	m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO
-			||  m_codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO)
-		{
+		if (nullptr == m_codec) {
+			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
+				err("Failed to find decoder for stream #%d\n", m_codec_par->codec_id);
+				return false;
+			}
+			if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+				err("Failed to allocate the decoder context for stream !");
+				return false;
+			}
+			if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0){
+				err("Failed to copy decoder parameters to input decoder context\n");
+				return false;
+			}
+			// Open decoder base on m_codec & m_codec_ctx.
 			if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
 				m_codec_ctx->framerate = m_framerate;
-			if ((ret = avcodec_open2(m_codec_ctx, m_codec, nullptr)) < 0) {
-				av_log(nullptr, AV_LOG_ERROR, "Failed to open decoder for stream\n");
+			if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
+				err("Failed to open decoder for stream\n");
 				return false;
 			}
 		}

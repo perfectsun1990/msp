@@ -39,7 +39,6 @@ protected:
 	virtual ~IDemuxer() = default;
 };
 
-// 解复用器
 class MediaDemuxer : public IDemuxer
 {
 public:
@@ -75,9 +74,10 @@ private:
 	bool								m_seek_done{ true };
 	bool								m_seek_apkt{ true };
 	bool								m_seek_vpkt{ true };
+	int64_t								m_last_loop{ av_gettime() };
 	std::shared_ptr<MPacket>			m_acache{ nullptr };
 	std::shared_ptr<MPacket>			m_vcache{ nullptr };
-	std::shared_ptr<MdmxConfig>			m_config; //配置参数
+	std::shared_ptr<MdmxConfig>			m_config;
 	std::thread 						m_worker;
 
 	AVRational							m_av_fps{ 0,1 };
