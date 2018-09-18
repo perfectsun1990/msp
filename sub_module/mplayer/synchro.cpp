@@ -15,7 +15,6 @@ MediaSynchro::MediaSynchro(
 	SET_STATUS(m_status,E_INVALID);
 	
 	m_config = std::make_shared<MSynConfig>();
-	
 	m_acache = std::make_shared<MRframe>();
 	m_acache->type = AVMEDIA_TYPE_AUDIO;
 	SET_PROPERTY(m_acache->prop, P_PAUS);
@@ -37,7 +36,6 @@ MediaSynchro::start(void)
 	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
 	SET_STATUS(m_status, E_STRTING);
 
-#if 1
 	m_vsychro_worker = std::thread([&]()
 	{
 		m_current_ptsv = 0;
@@ -53,16 +51,14 @@ MediaSynchro::start(void)
 		while (!m_signalVquit)
 		{
 			std::shared_ptr<MRframe> av_frm = nullptr;
-			if (!m_vsychro_Q.try_peek(av_frm))
-			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			if (!m_vsychro_Q.try_peek(av_frm)) {
+				sleepMs(STANDARDTK);
 				continue;
 			}
-			if (m_config->pauseflag)
-			{
+			if (m_config->pauseflag) {
 				if (!m_observer.expired())
 					m_observer.lock()->onSync(m_vcache);
-				av_usleep(10 * 1000);
+				sleepMs(STANDARDTK);
 				continue;
 			}
 			m_vsychro_Q.popd(av_frm);
@@ -71,16 +67,13 @@ MediaSynchro::start(void)
 			double delay_until_next_wake;
 			bool late_first_frame = false;
 
-#if 1
 			// 1.更新当前时间戳s 和当前时间:us.
 			m_current_ptsv = av_frm->upts;
 			m_current_pts_timev = av_gettime();
 			// 计算时间戳差值，大致等于duration长度，但是更精确, 
 			// 异常情况下，第一帧pts可能是负数或很大的一个数。
 			pts_diff = av_frm->upts - m_previous_ptsv;
-
-			if (m_first_framev)
-			{
+			if (m_first_framev) {
 				late_first_frame = true;// pts_diff >= 1.0;//第一帧pts异常就修正一下吧,后续还是间隔很大就不管了,可能是seek导致的。
 				m_first_framev = false;
 			}
@@ -95,7 +88,6 @@ MediaSynchro::start(void)
 			// 保留当前pts和pts_diff供,偶然异常时补偿。
 			m_previous_pts_diffv = pts_diff;
 			m_previous_ptsv = av_frm->upts;
-#if 1
 			// 视频渲染线程需要进行同步。音频不需要进入。因为我们用音频来同步视频。
 			// 当然，你不嫌弃反向操作垃圾也可以反着来。或者用外部精确时钟来同步二者。
 			if (m_config->sync_type != 1)
@@ -129,16 +121,13 @@ MediaSynchro::start(void)
 			//同步的情况下，上面的分支进入的可能性更大。。
 			if (delay_until_next_wake > pts_diff)
 				delay_until_next_wake = pts_diff;
-#endif
 			if (!m_observer.expired())
 				m_observer.lock()->onSync(av_frm);
 			int offset = 0;
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
-#endif	
 		}
-		msg("video sync thread....exit....\n");
+		war("video sync thread....exit....\n");
 	});
-
 
 	m_asychro_worker = std::thread([&]()
 	{
@@ -154,19 +143,15 @@ MediaSynchro::start(void)
 		m_signalAquit = false;
 		while (!m_signalAquit)
 		{
-			//pop..
 			std::shared_ptr<MRframe> av_frm = nullptr;
-			if (!m_asychro_Q.try_peek(av_frm))
-			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			if (!m_asychro_Q.try_peek(av_frm)) {
+				sleepMs(STANDARDTK);
 				continue;
 			}
-
-			if (m_config->pauseflag)
-			{
+			if (m_config->pauseflag) {
 				if (!m_observer.expired())
 					m_observer.lock()->onSync(m_acache);
-				av_usleep(10 * 1000);
+				sleepMs(STANDARDTK);
 				continue;
 			}
 			m_asychro_Q.popd(av_frm);
@@ -176,15 +161,13 @@ MediaSynchro::start(void)
 			double delay_until_next_wake;
 			bool late_first_frame = false;
 
-			// 1.更新当前时间戳s 和当前时间:us.
+			// 1.更新当前时间戳s 和当前系统时间:us.
 			m_current_pts = av_frm->upts;
 			m_current_pts_time = av_gettime();
-			// 计算时间戳差值，大致等于duration长度，但是更精确, 
-			// 异常情况下，第一帧pts可能是负数或很大的一个数。
+			// 计算时间戳差值，通常大致等于pkt duration长度，但是更精确, 
+			// 异常情况: 第一帧pts可能是负数或很大的一个值。
 			pts_diff = av_frm->upts - m_previous_pts;
-
-			if (m_first_frame)
-			{
+			if (m_first_frame) {
 				//clog(LOG_INFO, "receive first %s frame,pts_diff:%f", syncType() == SyncClock::AUDIO_MASTER ? "audio" : "video ", pts_diff);
 				late_first_frame = pts_diff >= 1.0;//第一帧pts异常就修正一下吧,后续还是间隔很大就不管了,可能是seek导致的。
 				m_first_frame = false;
@@ -201,17 +184,14 @@ MediaSynchro::start(void)
 
 			// 视频渲染线程需要进行同步。音频不需要进入。因为我们用音频来同步视频。
 			// 当然，你不嫌弃反向操作垃圾也可以反着来。或者用外部精确时钟来同步二者。
-			if (m_config->sync_type != 0)
-			{
+			if (m_config->sync_type != 0) {
 				pts_diff = getSyncAdjustedPtsDiff(av_frm->upts, pts_diff);
 			}
 			// 预测下次唤醒当前工作的时间点，系统时间-绝对的。
 			m_next_wake += pts_diff;
 			// 计算下次唤醒需要delay的时长，由于第一次调用时m_next_wake=0，所以后面还需要修正第一次的delay时间。
 			delay_until_next_wake = m_next_wake - (av_gettime() / 1000000.0L);
-
-			if (delay_until_next_wake < 0.010L)
-			{
+			if (delay_until_next_wake < 0.010L) {
 				m_next_wake = (av_gettime() / 1000000.0L) + 0.010L;
 				delay_until_next_wake = 0.010L;
 			}
@@ -223,34 +203,29 @@ MediaSynchro::start(void)
 			int offset = 0;
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
-		msg("audio sync thread....exit....\n");
+		war("audio sync thread....exit....\n");
 	});
-#endif
-
 	SET_STATUS(m_status, E_STARTED);
 }
 
 void
 MediaSynchro::stopd(bool stop_quik)
 {
-	CHK_RETURN(E_STARTED != status());
+	CHK_RETURN(E_STOPPED == status() || E_STOPING == status());
 	SET_STATUS(m_status, E_STOPING);
-
 	m_signalAquit = true;
 	if (m_asychro_worker.joinable()) m_asychro_worker.join();
 	m_signalVquit = true;
 	if (m_vsychro_worker.joinable()) m_vsychro_worker.join();
-
 	SET_STATUS(m_status, E_STOPPED);
 }
 
 void
 MediaSynchro::pause(bool pauseflag)
 {
-	MSynConfig cfg;
-	config(&cfg);
-	cfg.pauseflag = pauseflag;
-	update(&cfg);
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	m_config->pauseflag = pauseflag;
+
 }
 
 void

@@ -1,13 +1,21 @@
 ﻿
 #include "pubcore.hpp"
 
+typedef struct DemuxerPars
+{
+	double									duts_time{ 0 }; //duration/s.
+	double									curr_time{ 0 }; //demuxer not render ts/s.
+	std::vector<std::tuple<int32_t,void*>>	strm_info;
+}DemuxerPars;
 
 typedef struct MdmxConfig
 {
 	std::string								urls{ "" };
 	bool									pauseflag{ false };
-	int64_t									seek_time{ 0 };
+	int64_t									seek_time{ 0 };	//ms.
 	int32_t									seek_flag{ 1 };
+	int32_t									rdtimeout{ 0 };	//0-block,other/s.
+	DemuxerPars								mdmx_pars;		//read only cfgs.
 }MdmxConfig;
 
 class IDemuxerObserver
@@ -29,7 +37,7 @@ public:
 	virtual void	update(void* config) = 0;
 	virtual void	config(void* config) = 0;
 	virtual STATUS	status(void) = 0;
-	virtual int64_t durats(void) = 0;
+	virtual double  durats(void) = 0;
 	/* control functions. */
 	virtual void	start(void)  = 0;
 	virtual void	stopd(bool stop_quik = false) = 0;
@@ -49,21 +57,18 @@ public:
 	void	update(void* config)					 override;
 	void	config(void* config)					 override;
 	STATUS	status(void)							 override;
-	int64_t durats(void)							 override;
+	double  durats(void)							 override;
 	/* control functions. */
 	void start(void)								 override;
 	void stopd(bool stop_quik = false)				 override;
 	void pause(bool pauseflag = false)				 override;
 	void seekp(int64_t seektp)						 override;
 private:
+	void updateAttributes(void);
+	bool handleSeekAction(void);
 	bool opendMudemuxer(bool is_demuxer = false);
 	void closeMudemuxer(bool is_demuxer = false);
 	bool resetMudemuxer(bool is_demuxer = false);
-	bool handleSeekActs(int64_t seek_tp = 0);
-	int32_t streamNums(void);
-	int32_t streamType(int32_t indx);
-	void *  streamInfo(int32_t type);
-	void updateAttributes(void);
 private:
 	std::weak_ptr<IDemuxerObserver>		m_observer;
 	std::atomic<STATUS>					m_status{ E_INVALID };

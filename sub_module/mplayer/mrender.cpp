@@ -199,98 +199,91 @@ VideoMrender::start()
 	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
 	SET_STATUS(m_status, E_STRTING);
 
-	if (m_signal_quit)
+	m_signal_quit = false;
+	m_worker = std::thread([&]()
 	{
-		m_signal_quit = false;
-		m_worker = std::thread([&]()
+		int32_t ret = -1;
+		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
 		{
-			int32_t ret = -1;
-			while (!m_signal_quit)
-			{
-				SDL_PollEvent(&m_vevent);//Avoid window block...
-
-				// 1.receive and read raw pcm datas.
-				std::shared_ptr<MRframe> av_frm = nullptr;
-				if (!m_render_Q.try_peek(av_frm))
-				{
-					std::this_thread::sleep_for(std::chrono::milliseconds(10));
-					continue;
-				}
-
-				// 2.check and reinit sdl2  devices.
-				if (m_config->vcodec_pars.v_format != av_frm->pars->format
-					|| m_config->vcodec_pars.pix_with != av_frm->pars->width
-					|| m_config->vcodec_pars.pix_high != av_frm->pars->height)
-				{
-					m_config->vcodec_pars.v_format = av_frm->pars->format;
-					m_config->vcodec_pars.pix_with = av_frm->pars->width;
-					m_config->vcodec_pars.pix_high = av_frm->pars->height;
-					m_signal_rset = true;
-				}
-				if (m_signal_rset)
-				{// Warning: Failed will stop current thread.
-					if (!resetVideoDevice())	break;
-					av_yuv420p_freep(std::get<0>(m_buffer));// cahce av_frm data buffer.
-					std::get<0>(m_buffer) = av_yuv420p_clone(av_frm->pfrm);
-					if (!std::get<0>(m_buffer)) break;
-					std::get<1>(m_buffer) = av_frm->pfrm->width * av_frm->pfrm->height * 3 / 2;
-					m_signal_rset = false;
-					SET_STATUS(m_status, E_STARTED);
-				}
-
-				if (!(av_yuv420p_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
-					continue;
-
-				// 3.get video data for playback.
-				if (!m_config->window_paus)
-				{// refresh.
-					if (0 == (ret = SDL_UpdateTexture(m_textur, nullptr, std::get<0>(m_buffer), m_config->vcodec_pars.pix_with)))
-					{
-						if (ret = SDL_RenderClear(m_render))
-						{
-							err( "SDL_RenderClear: %s!\n", SDL_GetError());
-							continue;
-						}
-#if 0
-						int32_t  display_w = av_frm.width, display_h = av_frm.height;
-						SDL_GetWindowSize(m_window, &display_w, &display_h);
-						m_rectgl.x = 0;
-						m_rectgl.y = 0;
-						m_rectgl.w = display_w;
-						m_rectgl.h = display_h;//修改图像纹理显示大小和区域，和窗体大小无关.
-#endif
-						if (ret = SDL_RenderCopy(m_render, m_textur, nullptr, nullptr))
-						{
-							err( "SDL_RenderCopy: %s!\n", SDL_GetError());
-							continue;
-						}
-						SDL_RenderPresent(m_render);
-					}
-					m_curpts = av_frm->upts;
-					m_render_Q.popd(av_frm);
-				}
-
-				// 4.callback...
-				if (!m_observer.expired())
-					m_observer.lock()->onMPts(AVMEDIA_TYPE_VIDEO, m_curpts);
+			SDL_PollEvent(&m_vevent);//Avoid window block...
+			// 1.receive and read raw pcm datas.
+			std::shared_ptr<MRframe> av_frm = nullptr;
+			if (!m_render_Q.try_peek(av_frm)) {
+				sleepMs(STANDARDTK);
+				continue;
 			}
-			av_log(nullptr, AV_LOG_WARNING, "Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
-		});
-	}
+			// 2.check and reinit sdl2  devices.
+			if (m_config->vcodec_pars.v_format != av_frm->pars->format
+				|| m_config->vcodec_pars.pix_with != av_frm->pars->width
+				|| m_config->vcodec_pars.pix_high != av_frm->pars->height)
+			{
+				m_config->vcodec_pars.v_format = av_frm->pars->format;
+				m_config->vcodec_pars.pix_with = av_frm->pars->width;
+				m_config->vcodec_pars.pix_high = av_frm->pars->height;
+				m_signal_rset = true;
+			}
+			if (m_signal_rset) {// Warning: Failed will stop current thread.
+				if (!resetVideoDevice()) {
+					SET_STATUS(m_status, E_STRTERR);
+					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
+						sleepMs(STANDARDTK);//3s.
+					continue;
+				}
+				av_yuv420p_freep(std::get<0>(m_buffer));// cahce av_frm data buffer.
+				std::get<0>(m_buffer) = av_yuv420p_clone(av_frm->pfrm);
+				if (!std::get<0>(m_buffer)) break;
+				std::get<1>(m_buffer) = av_frm->pfrm->width * av_frm->pfrm->height * 3 / 2;
+				m_signal_rset = false;
+				SET_STATUS(m_status, E_STARTED);
+			}
+			if (!(av_yuv420p_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
+				continue;
+			// 3.get video data for playback.
+			if (!m_config->window_paus)
+			{// refresh.
+				if (0 == (ret = SDL_UpdateTexture(m_textur, nullptr, std::get<0>(m_buffer), m_config->vcodec_pars.pix_with)))
+				{
+					if (ret = SDL_RenderClear(m_render)) {
+						SET_STATUS(m_status, E_RUNNERR);
+						err( "SDL_RenderClear: %s!\n", SDL_GetError());
+						continue;
+					}
+#if 0
+					int32_t  display_w = av_frm.width, display_h = av_frm.height;
+					SDL_GetWindowSize(m_window, &display_w, &display_h);
+					m_rectgl.x = 0;
+					m_rectgl.y = 0;
+					m_rectgl.w = display_w;
+					m_rectgl.h = display_h;//修改图像纹理显示大小和区域，和窗体大小无关.
+#endif
+					if (ret = SDL_RenderCopy(m_render, m_textur, nullptr, nullptr)) {
+						SET_STATUS(m_status, E_RUNNERR);
+						err( "SDL_RenderCopy: %s!\n", SDL_GetError());
+						continue;
+					}
+					SDL_RenderPresent(m_render);
+				}
+				m_curpts = av_frm->upts;
+				m_render_Q.popd(av_frm);
+			}
+			// 4.callback...
+			if (!m_observer.expired())
+				m_observer.lock()->onMPts(AVMEDIA_TYPE_VIDEO, m_curpts);
+			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
+		}
+		av_log(nullptr, AV_LOG_WARNING, "Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
+	});
 }
 
 void
 VideoMrender::stopd(bool stop_quik)
 {
-	CHK_RETURN(E_STARTED != status());
+	CHK_RETURN(E_STOPPED == status() || E_STOPING == status());
 	SET_STATUS(m_status,E_STOPING);
-	if (!m_signal_quit)
-	{
-		m_signal_quit = true;
-		if (m_worker.joinable()) m_worker.join();
-		closeVideoDevice(true);
-		clearVideoRqueue(true);
-	}
+	m_signal_quit = true;
+	if (m_worker.joinable()) m_worker.join();
+	closeVideoDevice(true);
+	clearVideoRqueue(true);
 	SET_STATUS(m_status, E_STOPPED);
 }
 
@@ -332,15 +325,13 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 		std::lock_guard<std::mutex> locker(window_lock);
 
 		// 1.打开视频设备驱动.
-		if ((effort_driver_nums = SDL_GetNumVideoDrivers()) <= 0) 
-		{
+		if ((effort_driver_nums = SDL_GetNumVideoDrivers()) <= 0) {
 			err( "No built-in video drivers\n\n");
 			return false;
 		}else {
 			out("Built-in video drivers[%d]:\n", effort_driver_nums);
 			effort_driver_name = (char*)SDL_GetVideoDriver(0);
-			for (int32_t i = 0; i < effort_driver_nums; ++i)
-			{
+			for (int32_t i = 0; i < effort_driver_nums; ++i) {
 				const char* driver = SDL_GetVideoDriver(i);
 				if(nullptr == driver) continue;
 				m_config->vcodec_pars.drivers.insert(std::pair<int32_t, std::string>(i, driver));
@@ -360,8 +351,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 		}
 
 		// 2.打开指定视频设备.
-		if ((effort_device_nums = SDL_GetNumVideoDisplays()) <= 0)
-		{
+		if ((effort_device_nums = SDL_GetNumVideoDisplays()) <= 0) {
 			err( "No display devices found.\n\n");
 			return false;
 		}else {
@@ -543,22 +533,117 @@ AudioMrender::update(void* config)
 	}
 }
 
+int32_t
+AudioMrender::Q_size(void)
+{
+	return m_render_Q.size();
+}
+
+int32_t
+AudioMrender::cached(void)
+{
+	int32_t queue_size = (int32_t)SDL_GetQueuedAudioSize(m_audio_devID);
+	msg("SDL_GetQueuedAudioSize=%d\n", queue_size);
+	return queue_size;
+}
+
+STATUS
+AudioMrender::status(void)
+{
+	return m_status;
+}
+
 void
 AudioMrender::pause(bool pauseflag)
 {
-	ArdrConfig cfg;
-	config(static_cast<void*>(&cfg));
-	cfg.speakr_paus = pauseflag;
-	update(static_cast<void*>(&cfg));
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	m_config->speakr_paus = pauseflag;
 }
 
+void 
+AudioMrender::start()
+{
+	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
+	SET_STATUS(m_status, E_STRTING);
+	
+	m_signal_quit = false;
+	m_worker = std::thread([&]()
+	{
+		int32_t ret = -1;
+		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
+		{
+			// 1.receive and read raw pcm datas.
+			std::shared_ptr<MRframe> av_frm = nullptr;
+			if (!m_render_Q.try_peek(av_frm)) {
+				sleepMs(STANDARDTK);
+				continue;
+			}
+			// 2.check and reset SDL2 devices.
+			if (	m_config->acodec_pars.a_format != av_frm->pfrm->format
+				||	m_config->acodec_pars.smp_nums != av_frm->pfrm->nb_samples
+				||	m_config->acodec_pars.channels != av_frm->pfrm->channels
+				||	m_config->acodec_pars.smp_rate != av_frm->pfrm->sample_rate)
+			{//update codec pars.
+				m_config->acodec_pars.a_format = av_frm->pfrm->format;
+				m_config->acodec_pars.smp_nums = av_frm->pfrm->nb_samples;
+				m_config->acodec_pars.channels = av_frm->pfrm->channels;
+				m_config->acodec_pars.smp_rate = av_frm->pfrm->sample_rate;
+				m_signal_rset = true;
+				if ((m_config->acodec_pars.smp_nums & (m_config->acodec_pars.smp_nums - 1)))
+					war("Audio maybe brokenly for SDL2 limit![smp_nums=%d]\n", m_config->acodec_pars.smp_nums);
+			}
+			if (m_signal_rset)
+			{//Bug: some audio->nb_samples is changed frequently.
+				if (!resetAudioDevice(true)) {
+					SET_STATUS(m_status, E_STRTERR);
+					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
+						sleepMs(STANDARDTK);//3s.
+					continue;
+				}
+				av_pcmalaw_freep(std::get<0>(m_buffer));// cahce av_frm data buffer.
+				std::get<0>(m_buffer) = av_pcmalaw_clone(av_frm->pfrm);
+				if (nullptr == std::get<0>(m_buffer)) break;
+				std::get<1>(m_buffer) = av_samples_get_buffer_size(nullptr, av_frm->pfrm->channels, 
+					av_frm->pfrm->nb_samples, (enum AVSampleFormat)av_frm->pfrm->format, 1);
+				m_signal_rset = false;
+				SET_STATUS(m_status, E_STARTED);
+			}
+			if (!(av_pcmalaw_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
+				continue;
+			// 3.get audio data for playback.
+			if (!m_config->speakr_paus) {
+				if ((ret = SDL_QueueAudio(m_audio_devID, std::get<0>(m_buffer), std::get<1>(m_buffer))))
+					continue;
+				m_curpts = av_frm->upts;
+				m_render_Q.popd(av_frm);
+			}
+			// 4.callback...
+			if (!m_observer.expired())
+				m_observer.lock()->onMPts(AVMEDIA_TYPE_AUDIO, m_curpts);
+			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
+		}
+		av_log(nullptr, AV_LOG_WARNING, "Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
+	});
+}
+
+void
+AudioMrender::stopd(bool stop_quik)
+{
+	CHK_RETURN(E_STOPPED == status() || E_STOPING == status());
+	SET_STATUS(m_status,E_STOPING);
+	m_signal_quit = true;
+	if (m_worker.joinable()) m_worker.join();
+	closeAudioDevice(true);
+	clearAudioRqueue(true);
+	SET_STATUS(m_status, E_STOPPED);
+}
 
 void
 AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only resmple for unsupported foramts,convert to fltp.
-		AVFrame* pfrm = audio_frame_alloc(AV_SAMPLE_FMT_FLTP, 
+		AVFrame* pfrm = audio_frame_alloc(AV_SAMPLE_FMT_FLTP,
 			av_frm->pfrm->channel_layout, av_frm->pfrm->sample_rate, av_frm->pfrm->nb_samples);
 		if (!audio_resmple(&m_swrctx, pfrm, av_frm->pfrm)) {
 			err("Audio: pfrm=%p resmple failed...\n", pfrm);
@@ -568,11 +653,11 @@ AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 		// update av_frm parameters...
 		av_frame_free(&av_frm->pfrm);
 		av_frm->pfrm = pfrm;
-		av_frm->pars->sample_rate	= av_frm->pfrm->sample_rate;
-		av_frm->pars->channels		= av_frm->pfrm->channels;
-		av_frm->pars->channel_layout= av_frm->pfrm->channel_layout;
-		av_frm->pars->format		= av_frm->pfrm->format;
-		
+		av_frm->pars->sample_rate = av_frm->pfrm->sample_rate;
+		av_frm->pars->channels = av_frm->pfrm->channels;
+		av_frm->pars->channel_layout = av_frm->pfrm->channel_layout;
+		av_frm->pars->format = av_frm->pfrm->format;
+
 	}
 	if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
 		m_render_Q.clear();
@@ -586,125 +671,19 @@ AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
 		m_render_Q.push(av_frm);
 }
 
-int32_t 
-AudioMrender::Q_size(void)
-{
-	return m_render_Q.size();
-}
+//////////////////////////////////////////////////////////////////////////////////////////////////
 
-int32_t 
-AudioMrender::cached(void)
-{
-	int32_t queue_size = (int32_t)SDL_GetQueuedAudioSize(m_audio_devID);
-	msg("SDL_GetQueuedAudioSize=%d\n", queue_size);
-	return queue_size;
-}
-
-void 
+void
 AudioMrender::updateAttributes(void)
 {
 	if (m_audio_devID >= 2)
-	{
 		SDL_PauseAudioDevice(m_audio_devID, m_config->speakr_paus);
-	}
 }
 
 void AudioMrender::clearAudioRqueue(bool is_mrender)
 {
 	if (is_mrender)
-	{
 		m_render_Q.clear();
-	}
-}
-
-STATUS
-AudioMrender::status(void)
-{
-	return m_status;
-}
-
-void 
-AudioMrender::start()
-{
-	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
-	SET_STATUS(m_status, E_STRTING);
-	
-	if (m_signal_quit)
-	{
-		m_signal_quit = false;
-		m_worker = std::thread([&]()
-		{
-			int32_t ret = -1;
-			while (!m_signal_quit)
-			{
-				// 1.receive and read raw pcm datas.
-				std::shared_ptr<MRframe> av_frm = nullptr;
-				if (!m_render_Q.try_peek(av_frm))
-				{
-					std::this_thread::sleep_for(std::chrono::milliseconds(10));
-					continue;
-				}
-				
-				// 2.check and reset SDL2 devices.
-				if (	m_config->acodec_pars.a_format != av_frm->pfrm->format
-					||	m_config->acodec_pars.smp_nums != av_frm->pfrm->nb_samples
-					||	m_config->acodec_pars.channels != av_frm->pfrm->channels
-					||	m_config->acodec_pars.smp_rate != av_frm->pfrm->sample_rate)
-				{//update codec pars.
-					m_config->acodec_pars.a_format = av_frm->pfrm->format;
-					m_config->acodec_pars.smp_nums = av_frm->pfrm->nb_samples;
-					m_config->acodec_pars.channels = av_frm->pfrm->channels;
-					m_config->acodec_pars.smp_rate = av_frm->pfrm->sample_rate;
-					m_signal_rset = true;
-					if ((m_config->acodec_pars.smp_nums & (m_config->acodec_pars.smp_nums - 1)))
-						av_log(nullptr, AV_LOG_WARNING, "Audio maybe brokenly for SDL2 limit![smp_nums=%d]\n", m_config->acodec_pars.smp_nums);
-				}
-				if (m_signal_rset)
-				{//Bug: some audio->nb_samples is changed frequently.
-					if (!resetAudioDevice(true))			  break;
-					av_pcmalaw_freep(std::get<0>(m_buffer));// cahce av_frm data buffer.
-					std::get<0>(m_buffer) = av_pcmalaw_clone(av_frm->pfrm);
-					if (nullptr == std::get<0>(m_buffer)) break;
-					std::get<1>(m_buffer) = av_samples_get_buffer_size(nullptr, av_frm->pfrm->channels, av_frm->pfrm->nb_samples, (enum AVSampleFormat)av_frm->pfrm->format, 1);
-					m_signal_rset = false;
-					SET_STATUS(m_status, E_STARTED);
-				}
-
-				if (!(av_pcmalaw_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
-					continue;
-
-				// 3.get audio data for playback.
-				if (!m_config->speakr_paus)
-				{
-					if ((ret = SDL_QueueAudio(m_audio_devID, std::get<0>(m_buffer), std::get<1>(m_buffer))))
-						continue;
-					m_curpts = av_frm->upts;
-					m_render_Q.popd(av_frm);
-				}
-
-				// 4.callback...
-				if (!m_observer.expired())
-					m_observer.lock()->onMPts(AVMEDIA_TYPE_AUDIO, m_curpts);
-
-			}
-			av_log(nullptr, AV_LOG_WARNING, "Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
-		});
-	}
-}
-
-void
-AudioMrender::stopd(bool stop_quik)
-{
-	CHK_RETURN(E_STARTED != status());
-	SET_STATUS(m_status,E_STOPING);
-	if (!m_signal_quit)
-	{
-		m_signal_quit = true;
-		if (m_worker.joinable()) m_worker.join();
-		closeAudioDevice(true);
-		clearAudioRqueue(true);
-	}
-	SET_STATUS(m_status, E_STOPPED);
 }
 
 bool 
@@ -718,7 +697,6 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 	if (is_mrender)
 	{
 		std::lock_guard<std::mutex> locker(speakr_lock);
-
 		// 1.打开音频设备驱动.
 		if ((effort_driver_nums = SDL_GetNumAudioDrivers()) <= 0) {
 			err( "No built-in audio drivers\n\n");
@@ -745,7 +723,6 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 				out("--->Using audio driver: %s \n\n", m_config->speakr_driv.c_str());
 			});
 		}
-
 		// 2.填充音频设备参数.
 		m_desire_spec.freq		= m_config->acodec_pars.smp_rate;
 		m_desire_spec.format	= fmtconvert(AVMEDIA_TYPE_AUDIO, m_config->acodec_pars.a_format);
@@ -754,14 +731,12 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 		m_desire_spec.samples	= m_config->acodec_pars.smp_nums;//must be 2^n samples,or noise.
 		m_desire_spec.callback	= nullptr;//use push mode,not pull mode.
 		m_desire_spec.userdata	= nullptr;
-
 		// 3.打开具体音频设备. [0-渲染,1-采集]
 		if ((effort_device_nums = SDL_GetNumAudioDevices(!is_mrender)) <= 0) {
 			err( "No speaker devices found.\n\n");
 			return false;
 		}else {
-			for (int32_t i = 0; i < effort_device_nums; i++)
-			{
+			for (int32_t i = 0; i < effort_device_nums; i++) {
 				const char *device = SDL_GetAudioDeviceName(i, !is_mrender);
 				if (nullptr == device) continue;
 				m_config->acodec_pars.devices.insert(std::pair<int32_t, std::string>(i, device));
@@ -774,28 +749,24 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 		}
 		m_audio_devID = SDL_OpenAudioDevice(m_config->speakr_name.c_str(), 0,
 			&m_desire_spec, &m_device_spec, SDL_AUDIO_ALLOW_ANY_CHANGE);
-		if (m_audio_devID < 2)
-		{
+		if (m_audio_devID < 2) {
 			err( "Open device[%s] failed! %s!\n",
 				m_config->speakr_name.c_str(), SDL_GetError());
 			return false;
 		}
 		out("--->Using audio device: %s\n\n", m_config->speakr_name.c_str());
-
 		// 4.启动音频渲染设备.
 		SDL_PauseAudioDevice(m_audio_devID, 0);
 		out("@@@ Open Audio device success! speaker[id=%d]=%s status=%d (1-playing)\n",
 			m_audio_devID, m_config->speakr_name.c_str(), SDL_GetAudioDeviceStatus(m_audio_devID));
 	}
-
 	return true;
 }
 
 void 
 AudioMrender::closeAudioDevice(bool is_mrender)
 {
-	if (is_mrender)
-	{
+	if (is_mrender) {
 		std::lock_guard<std::mutex> locker(speakr_lock);
 		if (m_audio_devID > 0 && 
 			SDL_AUDIO_STOPPED != SDL_GetAudioDeviceStatus(m_audio_devID))
@@ -812,8 +783,7 @@ AudioMrender::closeAudioDevice(bool is_mrender)
 bool 
 AudioMrender::resetAudioDevice(bool is_mrender)
 {
-	if (is_mrender)
-	{
+	if (is_mrender) {
 		closeAudioDevice(is_mrender);
 		return opendAudioDevice(is_mrender);
 	}

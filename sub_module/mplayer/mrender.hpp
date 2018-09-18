@@ -26,7 +26,7 @@ typedef struct ArdrConfig
 	std::string 					speakr_driv{ "" };
 	bool							speakr_mute{ 0 };
 	bool							speakr_paus{ 0 };
-	AVCodecPars						acodec_pars;//read only.
+	AVCodecPars						acodec_pars;//read only cfgs.
 }ArdrConfig;
 
 typedef struct VrdrConfig
@@ -47,7 +47,7 @@ typedef struct VrdrConfig
 	std::tuple<int32_t, int32_t>	window_default_size{ 1920 ,1080 };
 	std::tuple<int32_t, int32_t>	window_mininum_size{ 0 , 0 };
 	std::tuple<int32_t, int32_t>	window_maxinum_size{ 4096, 2160 };
-	AVCodecPars						vcodec_pars;//read only.
+	AVCodecPars						vcodec_pars;//read only cfgs.
 }VrdrConfig;
 
 class IMrenderObserver
@@ -113,23 +113,24 @@ private:
 	void closeAudioDevice(bool is_mrender = true);
 	bool resetAudioDevice(bool is_mrender = true);
 private:// Audio 
-	std::weak_ptr<IMrenderObserver> m_observer;
-	std::atomic<STATUS>			m_status{ E_INVALID };
-	std::atomic<bool>			m_signal_quit{ true };
-	std::atomic<bool>			m_signal_rset{ true };
+	std::weak_ptr<IMrenderObserver>		m_observer;
+	std::atomic<STATUS>					m_status{ E_INVALID };
+	std::atomic<bool>					m_signal_quit{ true };
+	std::atomic<bool>					m_signal_rset{ true };
 
-	std::mutex					m_cmutex;
-	std::tuple<char*, int32_t>	m_buffer{ nullptr,0 };
-	double						m_curpts{ 0 };
-	std::shared_ptr<ArdrConfig>	m_config;		    //配置参数
-	std::thread 				m_worker;		    //线程句柄
+	std::mutex							m_cmutex;
+	int64_t								m_last_loop{ av_gettime() };
+	std::tuple<char*, int32_t>			m_buffer{ nullptr,0 };
+	double								m_curpts{ 0 };
+	std::shared_ptr<ArdrConfig>			m_config;		    //配置参数
+	std::thread 						m_worker;		    //线程句柄
 	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;
 
-	SwrContext *				m_swrctx{ nullptr };
-	SDL_AudioSpec 				m_desire_spec{ 0 }; //音频参数
-	SDL_AudioSpec 				m_device_spec{ 0 };
-	SDL_AudioDeviceID 			m_audio_devID{ 0 }; //音频设备
-	SDL_Event      				m_aevent;
+	SwrContext *						m_swrctx{ nullptr };
+	SDL_AudioSpec 						m_desire_spec{ 0 }; //音频参数
+	SDL_AudioSpec 						m_device_spec{ 0 };
+	SDL_AudioDeviceID 					m_audio_devID{ 0 }; //音频设备
+	SDL_Event      						m_aevent;
 };
 
 class VideoMrender : public IMrender
@@ -157,22 +158,23 @@ private:
 	bool resetVideoDevice(bool is_mrender = true);
 private:
 	std::weak_ptr<IMrenderObserver> m_observer;
-	std::atomic<STATUS>			m_status{ E_INVALID };
-	std::atomic<bool>			m_signal_quit{ true };
-	std::atomic<bool>			m_signal_rset{ true };
+	std::atomic<STATUS>					m_status{ E_INVALID };
+	std::atomic<bool>					m_signal_quit{ true };
+	std::atomic<bool>					m_signal_rset{ true };
 
-	std::mutex					m_cmutex;
-	std::tuple<char* , int32_t>	m_buffer{ nullptr,0 };
-	double						m_curpts{ 0 };
-	std::shared_ptr<VrdrConfig>	m_config;			//配置参数
-	std::thread 				m_worker;
+	std::mutex							m_cmutex;
+	int64_t								m_last_loop{ av_gettime() };
+	std::tuple<char*, int32_t>			m_buffer{ nullptr,0 };
+	double								m_curpts{ 0 };
+	std::shared_ptr<VrdrConfig>			m_config;			//配置参数
+	std::thread 						m_worker;
 	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;
 
-	SwsContext *				m_swsctx{ nullptr };
-	SDL_Window*    				m_window{ nullptr };//窗口句柄
-	SDL_Window*    				m_sample{ nullptr };//窗口句柄<外部参考>
-	SDL_Renderer*   			m_render{ nullptr };//渲染句柄
-	SDL_Texture*    			m_textur{ nullptr };//纹理句柄
-	SDL_Rect       				m_rectgl;			//矩形区域	
-	SDL_Event      				m_vevent;			//事件循环
+	SwsContext *						m_swsctx{ nullptr };
+	SDL_Window*    						m_window{ nullptr };//窗口句柄
+	SDL_Window*    						m_sample{ nullptr };//窗口句柄<外部参考>
+	SDL_Renderer*   					m_render{ nullptr };//渲染句柄
+	SDL_Texture*    					m_textur{ nullptr };//纹理句柄
+	SDL_Rect       						m_rectgl;			//矩形区域	
+	SDL_Event      						m_vevent;			//事件循环
 };

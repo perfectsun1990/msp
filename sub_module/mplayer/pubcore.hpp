@@ -690,7 +690,7 @@ typedef enum PROPTS
 #define CLR_PROPERTY(x,y)						BCLR(x,y)
 #define CHK_PROPERTY(x,y)						BCHK(x,y)
 
-#define MAX_AUDIO_Q_SIZE						(3)
+#define MAX_AUDIO_Q_SIZE						(5)
 #define MAX_VIDEO_Q_SIZE						(MAX_AUDIO_Q_SIZE)
 
 //Demuxer->...->Enmuxer.

@@ -5,13 +5,13 @@
 typedef struct AdecConfig
 {
 	bool									pauseflag{ false };
-	bool									enablehdw{ false };
+	bool									avhwaccel{ false };
 }AdecConfig;
 
 typedef struct VdecConfig
 {
 	bool									pauseflag{ false };
-	bool									enablehdw{ false };
+	bool									avhwaccel{ false };
 }VdecConfig;
 
 class IDecoderObserver
@@ -70,21 +70,22 @@ private:
 	bool opendCodecer(bool is_decoder = false);
 	bool resetCodecer(bool is_decoder = false);
 private:
-	std::weak_ptr<IDecoderObserver> m_observer;
-	std::atomic<STATUS>			m_status{ E_INVALID };
-	std::atomic<bool>			m_signal_quit{ true };
-	std::atomic<bool>			m_signal_rset{ true };
-
-	std::mutex					m_cmutex;
-	std::shared_ptr<MRframe>	m_acache{ nullptr };
-	std::shared_ptr<AdecConfig>	m_config;
-	std::thread 				m_worker;
-	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;
+	std::weak_ptr<IDecoderObserver>				 m_observer;
+	std::atomic<STATUS>							 m_status{ E_INVALID };
+	std::atomic<bool>							 m_signal_quit{ true };
+	std::atomic<bool>							 m_signal_rset{ true };
+												 
+	std::mutex									 m_cmutex;
+	int64_t										 m_last_loop{ av_gettime() };
+	std::shared_ptr<MRframe>					 m_acache{ nullptr };
+	std::shared_ptr<AdecConfig>					 m_config;
+	std::thread 								 m_worker;
+	AT::SafeQueue<std::shared_ptr<MPacket>>		 m_decoder_Q;
 	
-	AVCodec*					m_codec{ nullptr };
-	AVRational					m_framerate{ 0,1 };
-	AVCodecParameters*			m_codec_par{ nullptr };
-	AVCodecContext*				m_codec_ctx{ nullptr };
+	AVCodec*									 m_codec{ nullptr };
+	AVRational									 m_framerate{ 0,1 };
+	AVCodecParameters*							 m_codec_par{ nullptr };
+	AVCodecContext*								 m_codec_ctx{ nullptr };
 };
 
 class VideoDecoder :public IDecoder
@@ -109,19 +110,20 @@ private:
 	bool opendCodecer(bool is_decoder = true);
 	bool resetCodecer(bool is_decoder = true);
 private:
-	std::weak_ptr<IDecoderObserver> m_observer;
-	std::atomic<STATUS>			m_status{ E_INVALID };
-	std::atomic<bool>			m_signal_quit{ true };
-	std::atomic<bool>			m_signal_rset{ true };
-
-	std::mutex					m_cmutex;
-	std::shared_ptr<MRframe>	m_vcache{ nullptr };
-	std::shared_ptr<VdecConfig>	m_config;
-	std::thread 				m_worker;
-	AT::SafeQueue<std::shared_ptr<MPacket>> m_decoder_Q;	
+	std::weak_ptr<IDecoderObserver>				 m_observer;
+	std::atomic<STATUS>							 m_status{ E_INVALID };
+	std::atomic<bool>							 m_signal_quit{ true };
+	std::atomic<bool>							 m_signal_rset{ true };
+												 
+	std::mutex									 m_cmutex;
+	int64_t										 m_last_loop{ av_gettime() };
+	std::shared_ptr<MRframe>					 m_vcache{ nullptr };
+	std::shared_ptr<VdecConfig>					 m_config;
+	std::thread 								 m_worker;
+	AT::SafeQueue<std::shared_ptr<MPacket>>		 m_decoder_Q;	
 	
-	AVCodec*					m_codec{ nullptr };
-	AVRational					m_framerate{ 0,1 };
-	AVCodecParameters*			m_codec_par{ nullptr };
-	AVCodecContext*				m_codec_ctx{ nullptr };
+	AVCodec*									 m_codec{ nullptr };
+	AVRational									 m_framerate{ 0,1 };
+	AVCodecParameters*							 m_codec_par{ nullptr };
+	AVCodecContext*								 m_codec_ctx{ nullptr };
 };
