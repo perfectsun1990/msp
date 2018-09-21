@@ -5,7 +5,8 @@
 typedef enum AVPixelFormat(*AVGetFormatCb)(
 	struct AVCodecContext *s, const enum AVPixelFormat * fmt);
 
-AVHWAccel *avfind_hwaccel_codec(enum AVCodecID codec_id,int32_t pix_fmt)
+static AVHWAccel*
+avfind_hwaccel_codec(enum AVCodecID codec_id, int32_t pix_fmt)
 {
 	AVHWAccel *hwaccel = NULL;
 	while ((hwaccel = av_hwaccel_next(hwaccel))) {
@@ -15,7 +16,8 @@ AVHWAccel *avfind_hwaccel_codec(enum AVCodecID codec_id,int32_t pix_fmt)
 	return hwaccel;
 }
 
-enum AVPixelFormat get_hwaccel_format(struct AVCodecContext *s,
+static enum AVPixelFormat
+get_hwaccel_format(struct AVCodecContext *s,
 	const enum AVPixelFormat * fmt)
 {
 	(void)s;
@@ -24,7 +26,8 @@ enum AVPixelFormat get_hwaccel_format(struct AVCodecContext *s,
 	return AV_PIX_FMT_YUV420P;
 }
 
-void avcodec_setlimits(AVCodecContext* codec_ctx)
+static void
+avcodec_setlimits(AVCodecContext* codec_ctx)
 {
 	if (codec_ctx->codec_id == AV_CODEC_ID_PNG
 		|| codec_ctx->codec_id == AV_CODEC_ID_TIFF
@@ -32,6 +35,9 @@ void avcodec_setlimits(AVCodecContext* codec_ctx)
 		|| codec_ctx->codec_id == AV_CODEC_ID_WEBP)
 		codec_ctx->thread_count = 1;
 }
+
+static int32_t g_adecoder_ssidNo = 10000;
+static int32_t g_vdecoder_ssidNo = 20000;
 
 std::shared_ptr<IDecoder> IDecoderFactory::createAudioDecoder(std::shared_ptr<IDecoderObserver> observer){
 	return std::make_shared<AudioDecoder>(observer);
@@ -43,7 +49,9 @@ AudioDecoder::AudioDecoder(std::shared_ptr<IDecoderObserver> observer):
 	SET_STATUS(m_status, E_INVALID);
 	
 	m_config = std::make_shared<AdecConfig>();
+	m_ssidNo = g_adecoder_ssidNo++;
 	m_acache = std::make_shared<MRframe>();
+	m_acache->ssid = m_ssidNo;
 	m_acache->type = AVMEDIA_TYPE_AUDIO;
 	SET_PROPERTY(m_acache->prop, P_PAUS);
 	m_codec_par = avcodec_parameters_alloc();
@@ -75,7 +83,12 @@ AudioDecoder::config(void * config)
 		*((AdecConfig*)config) = *m_config;
 }
 
-STATUS 
+int32_t AudioDecoder::ssidNo(void)
+{
+	return 	m_ssidNo;
+}
+
+STATUS
 AudioDecoder::status(void)
 {
 	return m_status;
@@ -123,6 +136,10 @@ void AudioDecoder::start(void)
 				m_signal_rset = true;
 			}
 			if (m_signal_rset) {
+				if (1 != av_pkt->ppkt->flags ) {
+					m_decoder_Q.popd(av_pkt);
+					continue;
+				}
 				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true)) {
 					SET_STATUS(m_status, E_STRTERR);
@@ -138,11 +155,11 @@ void AudioDecoder::start(void)
 			if ( m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
 				if (!m_observer.expired())
-					m_observer.lock()->onMFrm(m_acache);
+					m_observer.lock()->onDecoderFrame(m_acache);
 				sleepMs(STANDARDTK);
 				continue;
 			}
-			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
+			// 3.scale AVPacket timebase. <stream->codec: eg.1/44100->44100>
 			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);
 			// 4. send packet to decoder.
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
@@ -163,20 +180,22 @@ void AudioDecoder::start(void)
 						err("Decoding failed!ret=%d\n", ret);
 					break;
 				}
-				// 6.打包发送到渲染器.				
+				av_frm->ssid = m_ssidNo;
 				av_frm->type = av_pkt->type;
 				av_frm->prop = av_pkt->prop;
-				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
-				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //这样对于B帧是不对的。av_pkt->upts;
+				av_frm->sttb = m_codec_ctx->time_base;// eg.1/44100
+				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
+				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb);
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
 				}
-				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				m_acache->upts = av_frm->upts;
 				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_AUDIO)
-					m_observer.lock()->onMFrm(av_frm);
+					m_observer.lock()->onDecoderFrame(av_frm);
 			}
+			// 6.deque &update execute status.
+			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
 			m_decoder_Q.popd(av_pkt);
 		}
 		war("Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
@@ -194,11 +213,10 @@ void AudioDecoder::stopd(bool stop_quik)
 	SET_STATUS(m_status, E_STOPPED);
 }
 
-void AudioDecoder::onMPkt(std::shared_ptr<MPacket> av_pkt)
+void AudioDecoder::pushPackt(std::shared_ptr<MPacket> av_pkt)
 {
-	if (!m_signal_quit)
-	{
-		if (CHK_PROPERTY(av_pkt->prop, P_SEEK))
+	if (!m_signal_quit) {
+		if (CHK_PROPERTY(av_pkt->prop,  P_SEEK))
 			m_decoder_Q.clear();
 		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
 			m_decoder_Q.push(av_pkt);
@@ -228,50 +246,41 @@ void AudioDecoder::closeCodecer(bool is_decoder)
 
 bool AudioDecoder::opendCodecer(bool is_decoder)
 {
+	int32_t ret = 0;
+	AVDictionary *opts = nullptr;
+
+	av_register_all();
+
 	if (is_decoder)
 	{
-		int32_t ret = 0;
-		AVDictionary *opts = nullptr;
-		//av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
-		// Open decoder base on m_codec & m_codec_ctx.
 		if (m_config->avhwaccel) {
 			AVHWAccel *hwaccel = avfind_hwaccel_codec(m_codec_par->codec_id, m_codec_par->format);
-			m_codec = avcodec_find_decoder_by_name((hwaccel)?hwaccel->name:"null");
-			if (m_codec != NULL) {
-				if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-					err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
-					return false;
-				}
-				if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-					err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
-					return false;
-				}
-				if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-					err("no hardware decoder found! Err:%s\n", averr2str(ret));
-					return false;
-				}
+			if (hwaccel) {
+				msg("using hwaccel->name=%s\n", hwaccel->name);
+				if (!(m_codec = avcodec_find_decoder_by_name(hwaccel->name)))
+					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
-				err("avcodec_find_decoder failed! Err:%s\n", averr2str(ret));
+				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
 				return false;
 			}
-			if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-				err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
-			if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-				err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
-			// Open decoder base on m_codec & m_codec_ctx.
-			if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
-				m_codec_ctx->framerate = m_framerate;
-			if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-				err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
+		}
+		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			return false;
+		}
+		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
+			err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
+			return false;
+		}
+		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+			m_codec_ctx->framerate = m_framerate;
+		// Open decoder base on m_codec & m_codec_ctx.
+		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
+			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			return false;
 		}
 	}
 	return true;
@@ -279,11 +288,8 @@ bool AudioDecoder::opendCodecer(bool is_decoder)
 
 bool AudioDecoder::resetCodecer(bool is_decoder)
 {
-	if (is_decoder) {
-		closeCodecer(is_decoder);
-		return opendCodecer(is_decoder);
-	}
-	return false;
+	closeCodecer(is_decoder);
+	return opendCodecer(is_decoder);
 }
 
 std::shared_ptr<IDecoder> IDecoderFactory::createVideoDecoder(
@@ -296,9 +302,11 @@ VideoDecoder::VideoDecoder(std::shared_ptr<IDecoderObserver> observer)
 	SET_STATUS(m_status, E_INVALID);
 
 	m_config = std::make_shared<VdecConfig>();
+	m_ssidNo = g_vdecoder_ssidNo++;
 	m_observer  = observer;
 	m_codec_par = avcodec_parameters_alloc();
 	m_vcache = std::make_shared<MRframe>();
+	m_vcache->ssid = m_ssidNo;
 	m_vcache->type = AVMEDIA_TYPE_VIDEO;
 	SET_PROPERTY(m_vcache->prop, P_PAUS);
 
@@ -328,6 +336,13 @@ VideoDecoder::config(void * config)
 	if (nullptr != config)
 		*((VdecConfig*)config) = *m_config;
 }
+
+int32_t
+VideoDecoder::ssidNo(void)
+{
+	return m_ssidNo;
+}
+
 STATUS
 VideoDecoder::status(void)
 {
@@ -377,6 +392,10 @@ void VideoDecoder::start(void)
 				m_signal_rset = true;
 			}
 			if(m_signal_rset) {
+				if (1 != av_pkt->ppkt->flags) {
+					m_decoder_Q.popd(av_pkt);
+					continue;
+				}
 				m_framerate = av_pkt->ufps;
 				if (!resetCodecer(true)) {
 					SET_STATUS(m_status, E_STRTERR);
@@ -392,11 +411,11 @@ void VideoDecoder::start(void)
 			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
 				if (!m_observer.expired())
-					m_observer.lock()->onMFrm(m_vcache);
+					m_observer.lock()->onDecoderFrame(m_vcache);
 				sleepMs(STANDARDTK);
 				continue;
 			}
-			// 3.scale AVPacket timebase. <stream->codec: eg.1/25 1/44100>
+			// 3.scale AVPacket timebase. <stream->codec: eg.1/90000->1/25>
 			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);			
 			// 4. send packet to decoder.
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
@@ -418,22 +437,24 @@ void VideoDecoder::start(void)
 						err("Decoding failed! ret=%s\n", averr2str(ret));
 					break;
 				}
+				av_frm->ssid = m_ssidNo;
 				av_frm->type = av_pkt->type;
 				av_frm->prop = av_pkt->prop;
-				av_frm->sttb = m_codec_ctx->time_base;// av_pkt->sttb;
+				av_frm->sttb = m_codec_ctx->time_base;//av_frm->sttb=1/25
+				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //maybe diff with av_pkt->upts;
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
 					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
 					break;
 				}
-				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				m_vcache->upts = av_frm->upts;
 				if (!m_observer.expired() && av_frm->type == AVMEDIA_TYPE_VIDEO)
-					m_observer.lock()->onMFrm(av_frm);
+					m_observer.lock()->onDecoderFrame(av_frm);
 			}
+			// 6.deque &update execute status.
+			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
 			m_decoder_Q.popd(av_pkt);
-			SET_STATUS(m_status,((m_status==E_STOPING)?E_STOPING:E_RUNNING));
 		}
 		war("Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
@@ -453,7 +474,7 @@ VideoDecoder::stopd(bool stop_quik)
 
 
 void 
-VideoDecoder::onMPkt(std::shared_ptr<MPacket> av_pkt)
+VideoDecoder::pushPackt(std::shared_ptr<MPacket> av_pkt)
 {
 	if (!m_signal_quit) {
 		if (CHK_PROPERTY(av_pkt->prop,  P_SEEK))
@@ -480,8 +501,7 @@ VideoDecoder::clearCodec_Q(bool is_decoder)
 void 
 VideoDecoder::closeCodecer(bool is_decoder)
 {
-	if (is_decoder)
-		avcodec_free_context(&m_codec_ctx);
+	avcodec_free_context(&m_codec_ctx);
 	m_codec		= nullptr;
 	m_codec_ctx = nullptr;
 	m_signal_rset = true;
@@ -490,50 +510,41 @@ VideoDecoder::closeCodecer(bool is_decoder)
 bool 
 VideoDecoder::opendCodecer(bool is_decoder)
 {
+	int32_t ret = 0;
+	AVDictionary *opts = nullptr;
+
+	av_register_all();
+
 	if (is_decoder)
 	{
-		int32_t ret = 0;
-		AVDictionary *opts = nullptr;
-		//av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
-		// Open decoder base on m_codec & m_codec_ctx.
 		if (m_config->avhwaccel) {
 			AVHWAccel *hwaccel = avfind_hwaccel_codec(m_codec_par->codec_id, m_codec_par->format);
-			m_codec = avcodec_find_decoder_by_name((hwaccel) ? hwaccel->name : "null");
-			if (m_codec != NULL) {
-				if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-					err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
-					return false;
-				}
-				if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-					err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
-					return false;
-				}
-				if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-					err("no hardware decoder found! Err:%s\n", averr2str(ret));
-					return false;
-				}
+			if (hwaccel) {
+				msg("using hwaccel->name=%s\n", hwaccel->name);
+				if (!(m_codec = avcodec_find_decoder_by_name(hwaccel->name)))
+					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
-				err("avcodec_find_decoder failed! Err:%s\n", averr2str(ret));
+				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
 				return false;
 			}
-			if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-				err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
-			if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-				err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
-			// Open decoder base on m_codec & m_codec_ctx.
-			if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
-				m_codec_ctx->framerate = m_framerate;
-			if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-				err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
-				return false;
-			}
+		}
+		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
+			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			return false;
+		}
+		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
+			err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
+			return false;
+		}
+		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+			m_codec_ctx->framerate = m_framerate;
+		// Open decoder base on m_codec & m_codec_ctx.
+		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
+			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			return false;
 		}
 	}
 	return true;
@@ -542,10 +553,7 @@ VideoDecoder::opendCodecer(bool is_decoder)
 bool 
 VideoDecoder::resetCodecer(bool is_decoder)
 {
-	if (is_decoder) {
-		closeCodecer(is_decoder);
-		return opendCodecer(is_decoder);
-	}
-	return false;
+	closeCodecer(is_decoder);
+	return opendCodecer(is_decoder);
 }
 

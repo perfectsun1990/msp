@@ -707,6 +707,7 @@ struct MPacket
 		avcodec_parameters_free(&pars);
 		av_packet_free(&ppkt);
 	}
+	int32_t				ssid{ -1 };//unique mark of the stream.
 	int32_t				type{ -1 };//audio or video media type.
 	int64_t				prop{  0 };//specif prop, such as seek.
 	AVRational			sttb{  0 };//av_stream->timebase.
@@ -728,6 +729,7 @@ struct MRframe
 		avcodec_parameters_free(&pars);
 		av_frame_free(&pfrm);
 	}
+	int32_t				ssid{ -1 };//unique mark of the stream.
 	int32_t				type{ -1 };//audio or video media type.
 	int64_t				prop{  0 };//specif prop, such as seek.
 	AVRational			sttb{  0 };//av_codec->timebase.

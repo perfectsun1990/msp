@@ -59,14 +59,17 @@ ENDIF()
 SET(MEDIACORE_HEADERS
 	mplayer.hpp
 	demuxer.hpp
+	enmuxer.hpp
+	encoder.hpp
 	decoder.hpp
 	synchro.hpp
 	mrender.hpp
 	pubcore.hpp)
 SET(MEDIACORE_SOURCES 
 	mplayer.cpp
-	mplayer.cpp
+	enmuxer.cpp
 	demuxer.cpp
+	encoder.cpp
 	decoder.cpp
 	synchro.cpp
 	mrender.cpp)

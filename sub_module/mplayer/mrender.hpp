@@ -53,7 +53,7 @@ typedef struct VrdrConfig
 class IMrenderObserver
 {
 public:
-	virtual void onMPts(int32_t type, double upts) = 0;
+	virtual void onMRenderFrame(std::shared_ptr<MRframe> av_frm) = 0;
 // 	virtual void onMRenderStart(void) = 0;
 // 	virtual void onMRenderStopd(void) = 0;
 // 	virtual void onMRenderPause(void) = 0;
@@ -62,12 +62,13 @@ class IMrender
 {
 public:
 	/* configs functions. */
+	virtual int32_t	ssidNo(void) = 0;
 	virtual void	update(void* config) = 0;
 	virtual void	config(void* config) = 0;
 	virtual STATUS	status(void) = 0;
 	virtual int32_t Q_size(void) = 0;
 	virtual int32_t cached(void) = 0;// driver cached size.
-	virtual	void    onMFrm(std::shared_ptr<MRframe> avfrm) = 0;
+	virtual	void    pushFrame(std::shared_ptr<MRframe> avfrm) = 0;
 	/* control functions. */
 	virtual void	start(void)  = 0;
 	virtual void	stopd(bool stop_quik = false) = 0;
@@ -96,12 +97,13 @@ public:
 		std::shared_ptr<IMrenderObserver> observer = nullptr);
 	~AudioMrender();
 	/* configs functions. */
+	int32_t	ssidNo(void)							 override;
 	STATUS	status(void)							 override;
 	void	config(void* config)					 override;
 	void	update(void* config)					 override;
 	int32_t	Q_size(void)							 override;
 	int32_t	cached(void)							 override;
-	void	onMFrm(std::shared_ptr<MRframe> av_frm)	 override;
+	void	pushFrame(std::shared_ptr<MRframe> av_frm)	 override;
 	/* control functions. */
 	void	start(void)								 override;
 	void	stopd(bool stop_quik = false)			 override;
@@ -115,13 +117,14 @@ private:
 private:// Audio 
 	std::weak_ptr<IMrenderObserver>		m_observer;
 	std::atomic<STATUS>					m_status{ E_INVALID };
+	int32_t								m_ssidNo{ -1 };
 	std::atomic<bool>					m_signal_quit{ true };
 	std::atomic<bool>					m_signal_rset{ true };
 
 	std::mutex							m_cmutex;
 	int64_t								m_last_loop{ av_gettime() };
+	std::shared_ptr<MRframe>			m_acache{ nullptr };
 	std::tuple<char*, int32_t>			m_buffer{ nullptr,0 };
-	double								m_curpts{ 0 };
 	std::shared_ptr<ArdrConfig>			m_config;		    //配置参数
 	std::thread 						m_worker;		    //线程句柄
 	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;
@@ -140,12 +143,13 @@ public:
 		std::shared_ptr<IMrenderObserver> observer = nullptr);
 	~VideoMrender();
 	/* configs functions. */
+	int32_t	ssidNo(void)							 override;
 	STATUS	status(void)							 override;
 	void	config(void* config)					 override;
 	void	update(void* config)					 override;
 	int32_t	Q_size(void)							 override;
 	int32_t	cached(void)							 override;
-	void	onMFrm(std::shared_ptr<MRframe> av_frm)	 override;
+	void	pushFrame(std::shared_ptr<MRframe> av_frm)	 override;
 	/* control functions. */
 	void	start(void)								 override;
 	void	stopd(bool stop_quik = false)			 override;
@@ -159,13 +163,14 @@ private:
 private:
 	std::weak_ptr<IMrenderObserver> m_observer;
 	std::atomic<STATUS>					m_status{ E_INVALID };
+	int32_t								m_ssidNo{ -1 };
 	std::atomic<bool>					m_signal_quit{ true };
 	std::atomic<bool>					m_signal_rset{ true };
 
 	std::mutex							m_cmutex;
 	int64_t								m_last_loop{ av_gettime() };
+	std::shared_ptr<MRframe>			m_vcache{ nullptr };
 	std::tuple<char*, int32_t>			m_buffer{ nullptr,0 };
-	double								m_curpts{ 0 };
 	std::shared_ptr<VrdrConfig>			m_config;			//配置参数
 	std::thread 						m_worker;
 	AT::SafeQueue<std::shared_ptr<MRframe>> m_render_Q;

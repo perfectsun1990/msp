@@ -1,26 +1,26 @@
 ﻿
 #include "pubcore.hpp"
-#include "demuxer.hpp"
+#include "enmuxer.hpp"
 
-static int32_t g_demuxer_ssidNo = 0;
+static int32_t g_enmuxer_ssidNo = 0;
 
-std::shared_ptr<IDemuxer> IDemuxer::create(const char * inputf, 
-	std::shared_ptr<IDemuxerObserver> observer) {
-	return std::make_shared<MediaDemuxer>(inputf, observer);
+std::shared_ptr<IEnmuxer> IEnmuxer::create(const char * output,
+	std::shared_ptr<IEnmuxerObserver> observer) {
+	return std::make_shared<MediaEnmuxer>(output, observer);
 }
 
-MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IDemuxerObserver> observer)
+MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver> observer)
 	: m_observer(observer)
 {
-	SET_STATUS(m_status,E_INVALID);
-	
-	if (!IsStrEffect(inputf))	return;
+	SET_STATUS(m_status, E_INVALID);
 
-	m_config = std::make_shared<MdmxConfig>();
-	m_config->urls = inputf;
+	if (!IsStrEffect(output))	return;
+
+	m_config = std::make_shared<MemxConfig>();
+	m_config->urls = output;
 	m_config->rdtimeout = 10;
 
-	m_ssidNo = g_demuxer_ssidNo++;
+	m_ssidNo = g_enmuxer_ssidNo++;
 	m_acache = std::make_shared<MPacket>();
 	m_acache->ssid = m_ssidNo;
 	m_acache->type = AVMEDIA_TYPE_AUDIO;
@@ -33,50 +33,50 @@ MediaDemuxer::MediaDemuxer(const char * inputf, std::shared_ptr<IDemuxerObserver
 	SET_STATUS(m_status, E_INITRES);
 }
 
-MediaDemuxer::~MediaDemuxer()
+MediaEnmuxer::~MediaEnmuxer()
 {
 	stopd(true);
 }
 
-int32_t 
-MediaDemuxer::ssidNo(void)
+int32_t
+MediaEnmuxer::ssidNo(void)
 {
 	return m_ssidNo;
 }
 
 void
-MediaDemuxer::update(void* config)
+MediaEnmuxer::update(void* config)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	if (nullptr != config) {
-		*m_config = *((MdmxConfig*)config);
+		*m_config = *((MemxConfig*)config);
 		updateAttributes();
 	}
 }
 
 void
-MediaDemuxer::config(void * config)
+MediaEnmuxer::config(void * config)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	if (nullptr != config)
-		*((MdmxConfig*)config) = *m_config;
+		*((MemxConfig*)config) = *m_config;
 }
 
 STATUS
-MediaDemuxer::status(void)
+MediaEnmuxer::status(void)
 {
 	return m_status;
 }
 
 double
-MediaDemuxer::durats(void)
+MediaEnmuxer::durats(void)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	return m_config->mdmx_pars.duts_time;
 }
 
 void
-MediaDemuxer::pause(bool pauseflag)
+MediaEnmuxer::pause(bool pauseflag)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	m_config->pauseflag = pauseflag;
@@ -84,7 +84,7 @@ MediaDemuxer::pause(bool pauseflag)
 }
 
 void
-MediaDemuxer::seekp(int64_t seektp)
+MediaEnmuxer::seekp(int64_t seektp)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	if (m_seek_done) {
@@ -95,8 +95,8 @@ MediaDemuxer::seekp(int64_t seektp)
 	}
 }
 
-void 
-MediaDemuxer::start(void)
+void
+MediaEnmuxer::start(void)
 {
 	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
 	SET_STATUS(m_status, E_STRTING);
@@ -104,14 +104,14 @@ MediaDemuxer::start(void)
 	m_signal_quit = false;
 	m_worker = std::thread([&](void)
 	{
-		for (int64_t loop=0; !m_signal_quit; ++loop, m_last_loop =av_gettime())
+		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
 		{
 			// Send pause packets to observer.
 			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
 				if (!m_observer.expired()) {
-					m_observer.lock()->onDemuxerPackt(m_acache);
-					m_observer.lock()->onDemuxerPackt(m_vcache);
+					m_observer.lock()->onEnmuxerPackt(m_acache);
+					m_observer.lock()->onEnmuxerPackt(m_vcache);
 				}
 				sleepMs(STANDARDTK);
 				continue;
@@ -124,7 +124,7 @@ MediaDemuxer::start(void)
 			if (m_signal_rset) {
 				if (!resetMudemuxer(true)) {
 					SET_STATUS(m_status, E_STRTERR);
-					for(ret=0;ret<300 && !m_signal_quit;++ret)
+					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
 						sleepMs(STANDARDTK);//3s.
 					continue;
 				}
@@ -140,7 +140,7 @@ MediaDemuxer::start(void)
 			}
 			if ((ret = av_read_frame(m_fmtctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
-				if (ret != AVERROR_EOF) 
+				if (ret != AVERROR_EOF)
 					err("av_read_frame failed! ret=%s\n", averr2str(ret));
 				m_signal_rset = IsNetStream(m_fmtctx->filename);
 				sleepMs(STANDARDTK);
@@ -172,7 +172,7 @@ MediaDemuxer::start(void)
 			}
 			// Send media packets to observer.
 			if (!m_observer.expired())
-				m_observer.lock()->onDemuxerPackt(av_pkt);		
+				m_observer.lock()->onEnmuxerPackt(av_pkt);
 			// Update readonly cfg attributes.
 			m_config->mdmx_pars.curr_time = av_pkt->upts;
 			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
@@ -182,7 +182,7 @@ MediaDemuxer::start(void)
 }
 
 void
-MediaDemuxer::stopd(bool stop_quik)
+MediaEnmuxer::stopd(bool stop_quik)
 {
 	CHK_RETURN(E_STOPPED == status() || E_STOPING == status());
 	SET_STATUS(m_status, E_STOPING);
@@ -195,15 +195,15 @@ MediaDemuxer::stopd(bool stop_quik)
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 void
-MediaDemuxer::updateAttributes(void)
+MediaEnmuxer::updateAttributes(void)
 {
 }
 
 bool
-MediaDemuxer::handleSeekAction(void)
+MediaEnmuxer::handleSeekAction(void)
 {
 	if (!m_seek_done) {
-		MdmxConfig cfg;
+		MemxConfig cfg;
 		config(&cfg);
 		cfg.seek_time = (cfg.seek_time > m_fmtctx->duration) ? m_fmtctx->duration : cfg.seek_time;
 		cfg.seek_time = (cfg.seek_time < 0) ? 0 : cfg.seek_time;
@@ -220,7 +220,7 @@ MediaDemuxer::handleSeekAction(void)
 }
 
 void
-MediaDemuxer::closeMudemuxer(bool is_demuxer)
+MediaEnmuxer::closeMudemuxer(bool is_demuxer)
 {
 	if (is_demuxer) {
 		if (nullptr != m_fmtctx)
@@ -230,7 +230,7 @@ MediaDemuxer::closeMudemuxer(bool is_demuxer)
 }
 
 bool
-MediaDemuxer::opendMudemuxer(bool is_demuxer)
+MediaEnmuxer::opendMudemuxer(bool is_demuxer)
 {
 	int32_t ret = -1;
 	AVDictionary *opts = nullptr;
@@ -245,21 +245,21 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 	{// 2.Fill m_fmtctx and m_fmtctx->iformat<AVInputFormat> etc.
 		if (nullptr == m_fmtctx) {
 			// Policy for connect timeout,protcol etc...		
-			if (IsNetStream( m_config->urls.c_str() )) {
+			if (IsNetStream(m_config->urls.c_str())) {
 				av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
 				av_dict_set(&opts, "rtmp_transport", "tcp", 0); //rtmp default.
 				av_dict_set(&opts, "fflags", "nobuffer", 0);	//specify don't cache.buffersize
-				av_dict_set(&opts, "stimeout", "5000000", 0);	//connect delay 3s.
+				av_dict_set(&opts, "stimeout", "3000000", 0);	//connect delay 3s.
 			}
 			// Policy for resove av_read_frame block,play low delay.
 			m_fmtctx = avformat_alloc_context();
-			m_fmtctx->probesize		= 128*1024;					//def:5M,can be set smaller.
-			m_fmtctx->max_delay		= 100*1000;					//m_fmtctx->flush_packets = 1;
+			m_fmtctx->probesize = 128 * 1024;					//def:5M,can be set smaller.
+			m_fmtctx->max_delay = 100 * 1000;					//m_fmtctx->flush_packets = 1;
 			m_fmtctx->max_analyze_duration = 1000000;			//rapid load, max_duration:2s
-			m_fmtctx->interrupt_callback.opaque		= this;
-			m_fmtctx->interrupt_callback.callback	= [](void* ctx)->int32_t {
-				MediaDemuxer* pthis = (MediaDemuxer*)ctx;		//break when read frame block.
-				if ((av_gettime() - pthis->m_last_loop) > pthis->m_config->rdtimeout*1000*1000) {
+			m_fmtctx->interrupt_callback.opaque = this;
+			m_fmtctx->interrupt_callback.callback = [](void* ctx)->int32_t {
+				MediaEnmuxer* pthis = (MediaEnmuxer*)ctx;		//break when read frame block.
+				if ((av_gettime() - pthis->m_last_loop) > pthis->m_config->rdtimeout * 1000 * 1000) {
 					war("--->>> Hi! stream is diconnected!\n");
 					pthis->m_last_loop = av_gettime();
 					return AVERROR_EOF;
@@ -278,7 +278,7 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 				int32_t codec_type = (int32_t)m_fmtctx->streams[i]->codecpar->codec_type;
 				if (codec_type == AVMEDIA_TYPE_VIDEO)
 					m_av_fps = av_guess_frame_rate(m_fmtctx, m_fmtctx->streams[i], nullptr);
-				m_config->mdmx_pars.strm_info.push_back(std::tuple<int32_t,void*>(codec_type, m_fmtctx->streams[i]));
+				m_config->mdmx_pars.strm_info.push_back(std::tuple<int32_t, void*>(codec_type, m_fmtctx->streams[i]));
 			}
 			m_config->mdmx_pars.duts_time = (double)m_fmtctx->duration / AV_TIME_BASE;
 			av_dump_format(m_fmtctx, 0, m_config->urls.c_str(), !is_demuxer);
@@ -288,7 +288,7 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 }
 
 bool
-MediaDemuxer::resetMudemuxer(bool is_demuxer)
+MediaEnmuxer::resetMudemuxer(bool is_demuxer)
 {
 	if (is_demuxer) {
 		closeMudemuxer(is_demuxer);

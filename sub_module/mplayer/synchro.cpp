@@ -2,19 +2,22 @@
 #include "pubcore.hpp"
 #include "synchro.hpp"
 
-std::shared_ptr<ISynchro> ISynchro::create(
-	std::shared_ptr<ISynchroObserver> observer)
-{
-	return std::make_shared<MediaSynchro>(observer);
+static int32_t g_msynchro_ssidNo = 4000;
+
+std::shared_ptr<ISynchro> ISynchro::create(SyncType type,
+	std::shared_ptr<ISynchroObserver> observer) {
+	return std::make_shared<MediaSynchro>(type, observer);
 }
 
-MediaSynchro::MediaSynchro(
+MediaSynchro::MediaSynchro(SyncType type,
 	std::shared_ptr<ISynchroObserver> observer)
 	: m_observer(observer)
 {
 	SET_STATUS(m_status,E_INVALID);
 	
 	m_config = std::make_shared<MSynConfig>();
+	m_config->sync_type = type;
+	m_ssidNo = g_msynchro_ssidNo++;
 	m_acache = std::make_shared<MRframe>();
 	m_acache->type = AVMEDIA_TYPE_AUDIO;
 	SET_PROPERTY(m_acache->prop, P_PAUS);
@@ -30,23 +33,66 @@ MediaSynchro::~MediaSynchro()
 	stopd(true);
 }
 
+int32_t 
+MediaSynchro::ssidNo(void)
+{
+	return m_ssidNo;
+}
+
+void
+MediaSynchro::update(void* config)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	if (nullptr != config) {
+		*m_config = *((MSynConfig*)config);
+		updateAttributes();
+	}
+}
+
+void
+MediaSynchro::config(void * config)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	if (nullptr != config)
+		*((MSynConfig*)config) = *m_config;
+}
+
+STATUS
+MediaSynchro::status(void)
+{
+	return m_status;
+}
+
+int32_t
+MediaSynchro::Q_size(int32_t type)
+{
+	return ((type == AVMEDIA_TYPE_AUDIO) ?
+		m_asychro_Q.size() : m_vsychro_Q.size());
+}
+
+SyncType
+MediaSynchro::syncTp(void)
+{
+	return m_config->sync_type;
+}
+
+void
+MediaSynchro::pause(bool pauseflag)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	m_config->pauseflag = pauseflag;
+}
+
 void 
 MediaSynchro::start(void)
 {
 	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
 	SET_STATUS(m_status, E_STRTING);
 
+	resetSynchroInfo(2);
+
 	m_vsychro_worker = std::thread([&]()
 	{
-		m_current_ptsv = 0;
-		m_current_pts_timev = 0;
-		m_previous_ptsv = 0;
-		m_previous_pts_diffv = 40e-3;
-		m_start_ptsv = 0;
-		m_predicted_ptsv = 0.0;
-		m_first_framev = true;
-		m_next_wakev = 0.0;
-		m_vsychro_Q.clear();
 		m_signalVquit = false;
 		while (!m_signalVquit)
 		{
@@ -57,7 +103,7 @@ MediaSynchro::start(void)
 			}
 			if (m_config->pauseflag) {
 				if (!m_observer.expired())
-					m_observer.lock()->onSync(m_vcache);
+					m_observer.lock()->onSynchroFrame(m_vcache);
 				sleepMs(STANDARDTK);
 				continue;
 			}
@@ -90,10 +136,9 @@ MediaSynchro::start(void)
 			m_previous_ptsv = av_frm->upts;
 			// 视频渲染线程需要进行同步。音频不需要进入。因为我们用音频来同步视频。
 			// 当然，你不嫌弃反向操作垃圾也可以反着来。或者用外部精确时钟来同步二者。
-			if (m_config->sync_type != 1)
-			{
+			if (m_config->sync_type != SYNC_VIDEO_MASTER) {
 				dbg("#1pts_diff:%g\n", pts_diff);
-				pts_diff = getSyncAdjustedPtsDiff(av_frm->upts, pts_diff);
+				pts_diff = getAdjustPtsDiff(av_frm->upts, pts_diff);
 				dbg("#2pts_diff:%g\n", pts_diff);
 			}
 
@@ -122,8 +167,9 @@ MediaSynchro::start(void)
 			if (delay_until_next_wake > pts_diff)
 				delay_until_next_wake = pts_diff;
 			if (!m_observer.expired())
-				m_observer.lock()->onSync(av_frm);
+				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;
+			dbg("v delay_until_next_wake=%lf\n", delay_until_next_wake);
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
 		war("video sync thread....exit....\n");
@@ -131,15 +177,6 @@ MediaSynchro::start(void)
 
 	m_asychro_worker = std::thread([&]()
 	{
-		m_current_pts = 0;
-		m_current_pts_time = 0;
-		m_previous_pts = 0;
-		m_previous_pts_diff = 40e-3;
-		m_start_pts = 0;
-		m_predicted_pts = 0.0;
-		m_first_frame = true;
-		m_next_wake = 0.0;
-		m_asychro_Q.clear();
 		m_signalAquit = false;
 		while (!m_signalAquit)
 		{
@@ -150,7 +187,7 @@ MediaSynchro::start(void)
 			}
 			if (m_config->pauseflag) {
 				if (!m_observer.expired())
-					m_observer.lock()->onSync(m_acache);
+					m_observer.lock()->onSynchroFrame(m_acache);
 				sleepMs(STANDARDTK);
 				continue;
 			}
@@ -184,8 +221,8 @@ MediaSynchro::start(void)
 
 			// 视频渲染线程需要进行同步。音频不需要进入。因为我们用音频来同步视频。
 			// 当然，你不嫌弃反向操作垃圾也可以反着来。或者用外部精确时钟来同步二者。
-			if (m_config->sync_type != 0) {
-				pts_diff = getSyncAdjustedPtsDiff(av_frm->upts, pts_diff);
+			if (m_config->sync_type != SYNC_AUDIO_MASTER) {
+				pts_diff = getAdjustPtsDiff(av_frm->upts, pts_diff);
 			}
 			// 预测下次唤醒当前工作的时间点，系统时间-绝对的。
 			m_next_wake += pts_diff;
@@ -199,8 +236,9 @@ MediaSynchro::start(void)
 				delay_until_next_wake = pts_diff;
 
 			if (!m_observer.expired())
-				m_observer.lock()->onSync(av_frm);
+				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;
+			dbg("a delay_until_next_wake=%lf\n", delay_until_next_wake);
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
 		war("audio sync thread....exit....\n");
@@ -217,98 +255,92 @@ MediaSynchro::stopd(bool stop_quik)
 	if (m_asychro_worker.joinable()) m_asychro_worker.join();
 	m_signalVquit = true;
 	if (m_vsychro_worker.joinable()) m_vsychro_worker.join();
+	clearSynchroAV_Q();
 	SET_STATUS(m_status, E_STOPPED);
 }
 
 void
-MediaSynchro::pause(bool pauseflag)
+MediaSynchro::pushFrame(std::shared_ptr<MRframe> av_frm)
 {
-	std::lock_guard<std::mutex> locker(m_cmutex);
-	m_config->pauseflag = pauseflag;
-
-}
-
-void
-MediaSynchro::config(void * config)
-{
-	std::lock_guard<std::mutex> locker(m_cmutex);
-	if (nullptr != config)
-		*((MSynConfig*)config) = *m_config;
-}
-
-void
-MediaSynchro::update(void* config)
-{
-	std::lock_guard<std::mutex> locker(m_cmutex);
-	MSynConfig* cfg = (MSynConfig*)config;
-	if (nullptr != config)
-	{
-		*m_config = *cfg;
+	// Specify
+	if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
+		(av_frm->type == AVMEDIA_TYPE_AUDIO) ?
+			m_asychro_Q.clear(): m_vsychro_Q.clear();
+		// FIXME: there's a bug for seek.
+		msg("sychro: clear Que[%d]...\n", av_frm->type);
 	}
-}
-
-STATUS 
-MediaSynchro::status(void)
-{
-	return m_status;
-}
-
-int32_t MediaSynchro::Q_size(void)
-{
-	return ((m_asychro_Q.size() > m_vsychro_Q.size()) ? 
-		m_asychro_Q.size() : m_vsychro_Q.size());
-}
-
-void MediaSynchro::updateSyncType(int32_t sync_type)
-{
-	MSynConfig cfg;
-	config(&cfg);
-	cfg.sync_type = sync_type;
-	update(&cfg);
-}
-
-
-void
-MediaSynchro::onMFrm(std::shared_ptr<MRframe> av_frm)
-{
+	if (CHK_PROPERTY(av_frm->prop, P_PAUS)) {
+		dbg("sychro: pause Prm[%d]...\n", av_frm->type);
+		return;
+	}
+	// Enqueue
 	if (av_frm->type == AVMEDIA_TYPE_AUDIO)
-	{
-		if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
-			m_asychro_Q.clear();
-			msg("sychro: clear Que...\n");
-		}
-		if (CHK_PROPERTY(av_frm->prop, P_PAUS)) {
-			dbg("sychro: pause Prm...\n");
-			return;
-		}
-		if (!m_signalAquit)
+		if (!m_signalAquit && !CHK_PROPERTY(av_frm->prop, P_PAUS))
 			m_asychro_Q.push(av_frm);
-	}
 	if (av_frm->type == AVMEDIA_TYPE_VIDEO)
-	{
-		if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
-			m_vsychro_Q.clear();
-			msg("sychro: clear Que...\n");
-		}
-		if (CHK_PROPERTY(av_frm->prop, P_PAUS)) {
-			dbg("sychro: pause Prm...\n");
-			return;
-		}
-		if (!m_signalVquit)
+		if (!m_signalAquit && !CHK_PROPERTY(av_frm->prop, P_PAUS))
 			m_vsychro_Q.push(av_frm);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+void
+MediaSynchro::updateAttributes(void)
+{
+}
+
+void 
+MediaSynchro::clearSynchroAV_Q(void)
+{
+	m_asychro_Q.clear();
+	m_vsychro_Q.clear();
+}
+
+void
+MediaSynchro::resetSynchroInfo(int32_t type)
+{
+	switch (type)
+	{
+	case AVMEDIA_TYPE_VIDEO:
+	{
+		m_current_ptsv = 0;
+		m_current_pts_timev = 0;
+		m_previous_ptsv = 0;
+		m_previous_pts_diffv = 40e-3;
+		m_first_framev = true;
+		m_next_wakev = 0.0;
+		break;
+	}	
+	case AVMEDIA_TYPE_AUDIO:
+	{
+		m_current_pts = 0;
+		m_current_pts_time = 0;
+		m_previous_pts = 0;
+		m_previous_pts_diff = 40e-3;
+		m_start_pts = 0;
+		m_first_frame = true;
+		m_next_wake = 0.0;
+		break;
+	}
+	default:
+		resetSynchroInfo(AVMEDIA_TYPE_VIDEO);
+		resetSynchroInfo(AVMEDIA_TYPE_AUDIO);
+		break;
 	}
 }
 
-double MediaSynchro::decodeClock()
+double 
+MediaSynchro::syncDeocodeClock()
 {
 	double delta = (av_gettime() - m_current_pts_time) / 1000000.0;//s
 	return m_current_pts + delta;//ts+调用该函数时增量.
 }
 
-double MediaSynchro::getSyncAdjustedPtsDiff(double pts, double pts_diff)
+double
+MediaSynchro::getAdjustPtsDiff(double pts, double pts_diff)
 {
 	double new_pts_diff = pts_diff;
-	double sync_time = decodeClock();// m_sync_clock->syncClock();
+	double sync_time = syncDeocodeClock();// m_sync_clock->syncClock();
 	double diff = pts - sync_time;//s 音视频时间戳的差值.负数表示视频慢了，正数表示视频快了。
 	double sync_threshold = 
 		 (pts_diff > AV_SYNC_THRESHOLD)

@@ -72,15 +72,13 @@ void
 OnceTaskInit()
 {
 	static std::once_flag once;
-	std::call_once(once, [&](void)->void
-	{
+	std::call_once(once, [&](void)->void {
 		uint32_t masks = SDL_INIT_EVERYTHING;
 		if (masks != SDL_WasInit(masks))
 		{// Note: init & quit once duraing a process.
 			if (SDL_Init(SDL_INIT_EVERYTHING))
 				err("Couldn't initialize SDL subsystem - %s!\n", SDL_GetError());
-			if (std::atexit([](void)
-			{
+			if (std::atexit([](void) {
 				SDL_AudioQuit();
 				SDL_VideoQuit();
 				SDL_Quit();
@@ -90,10 +88,12 @@ OnceTaskInit()
 	});
 }
 
+static int32_t g_amrender_ssidNo = 10000;
+static int32_t g_vmrender_ssidNo = 20000;
+
 std::shared_ptr<IMrender>
 IMrenderFactory::createVideoMrender(const void* handle,
-	std::shared_ptr<IMrenderObserver> observer)
-{
+	std::shared_ptr<IMrenderObserver> observer) {
 	return std::make_shared<VideoMrender>(handle, observer);
 }
 
@@ -102,9 +102,15 @@ VideoMrender::VideoMrender(const void* handle,
 	m_observer(observer)
 {
 	m_status = E_INVALID;
-	/***do init thing***/
+
 	m_config = std::make_shared<VrdrConfig>();
 	m_config->window_hdwn = const_cast<void*>(handle);
+	m_ssidNo = g_vmrender_ssidNo++;
+	m_vcache = std::make_shared<MRframe>();
+	m_vcache->ssid = m_ssidNo;
+	m_vcache->type = AVMEDIA_TYPE_VIDEO;
+	SET_PROPERTY(m_vcache->prop, P_PAUS);
+
 	m_status = E_INITRES;
 }
 
@@ -112,36 +118,6 @@ VideoMrender::~VideoMrender()
 {
 	stopd();
 	av_yuv420p_freep(std::get<0>(m_buffer));
-}
-
-void 
-VideoMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
-{
-	if (AV_PIX_FMT_YUV420P != av_frm->pfrm->format)
-	{// Note: Only rescale for unsupported foramts, convert to I420.
-		AVFrame* pfrm = video_frame_alloc(AV_PIX_FMT_YUV420P, av_frm->pfrm->width, av_frm->pfrm->height);
-		if (!video_rescale(&m_swsctx, pfrm, av_frm->pfrm)) {
-			err("video: pfrm=%p rescale failed...\n", pfrm);
-			video_frame_freep(&pfrm);
-			return;
-		}
-		// update the av_frm parameters...
-		av_frame_free(&av_frm->pfrm);
-		av_frm->pfrm = pfrm;
-		av_frm->pars->width = pfrm->width;
-		av_frm->pars->height = pfrm->height;
-		av_frm->pars->format = pfrm->format;
-	}
-	if (CHK_PROPERTY(av_frm->prop, P_SEEK)){
-		m_render_Q.clear();
-		msg("video: clear render Que...\n");
-	}
-	if (CHK_PROPERTY(av_frm->prop, P_PAUS)){
-		dbg("video: pause render Pkt...\n");
-		return;
-	}
-	if (!m_signal_quit)
-		m_render_Q.push(av_frm);
 }
 
 void
@@ -157,8 +133,7 @@ VideoMrender::update(void* config)
 {
 	std::lock_guard<std::mutex> locker(m_cmutex);
 	VrdrConfig* p_cfg = (VrdrConfig*)config;
-	if (nullptr != config)
-	{
+	if (nullptr != config) {
 		if (m_config->window_hdwn!=p_cfg->window_hdwn)
 			m_signal_rset = true;
 		*m_config = *p_cfg;
@@ -170,9 +145,13 @@ void
 VideoMrender::clearVideoRqueue(bool is_mrender)
 {
 	if (is_mrender)
-	{
 		m_render_Q.clear();
-	}
+}
+
+int32_t 
+VideoMrender::ssidNo(void)
+{
+	return m_ssidNo;
 }
 
 STATUS
@@ -191,6 +170,13 @@ int32_t
 VideoMrender::cached(void)
 {
 	return 0;
+}
+
+void 
+VideoMrender::pause(bool pauseflag)
+{
+	std::lock_guard<std::mutex> locker(m_cmutex);
+	m_config->window_paus = pauseflag;
 }
 
 void
@@ -239,39 +225,48 @@ VideoMrender::start()
 			if (!(av_yuv420p_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
 				continue;
 			// 3.get video data for playback.
-			if (!m_config->window_paus)
-			{// refresh.
-				if (0 == (ret = SDL_UpdateTexture(m_textur, nullptr, std::get<0>(m_buffer), m_config->vcodec_pars.pix_with)))
-				{
-					if (ret = SDL_RenderClear(m_render)) {
-						SET_STATUS(m_status, E_RUNNERR);
-						err( "SDL_RenderClear: %s!\n", SDL_GetError());
-						continue;
-					}
-#if 0
-					int32_t  display_w = av_frm.width, display_h = av_frm.height;
-					SDL_GetWindowSize(m_window, &display_w, &display_h);
-					m_rectgl.x = 0;
-					m_rectgl.y = 0;
-					m_rectgl.w = display_w;
-					m_rectgl.h = display_h;//修改图像纹理显示大小和区域，和窗体大小无关.
-#endif
-					if (ret = SDL_RenderCopy(m_render, m_textur, nullptr, nullptr)) {
-						SET_STATUS(m_status, E_RUNNERR);
-						err( "SDL_RenderCopy: %s!\n", SDL_GetError());
-						continue;
-					}
-					SDL_RenderPresent(m_render);
-				}
-				m_curpts = av_frm->upts;
-				m_render_Q.popd(av_frm);
+			if (m_config->window_paus) {
+				SET_STATUS(m_status, E_PAUSING);
+				if (!m_observer.expired())
+					m_observer.lock()->onMRenderFrame(m_vcache);
+				sleepMs(STANDARDTK);
+				continue;
 			}
-			// 4.callback...
+			// 4.refresh windows area buffer.
+			if (0 != (ret = SDL_UpdateTexture(m_textur, nullptr, std::get<0>(m_buffer), m_config->vcodec_pars.pix_with))){
+				err("SDL_UpdateTexture: %s!\n", SDL_GetError());
+				sleepMs(STANDARDTK);
+				continue;
+			}
+			if (ret = SDL_RenderClear(m_render)) {
+				SET_STATUS(m_status, E_RUNNERR);
+				err( "SDL_RenderClear: %s!\n", SDL_GetError());
+				sleepMs(STANDARDTK);
+				continue;
+			}
+#if 0
+			int32_t  display_w = av_frm.width, display_h = av_frm.height;
+			SDL_GetWindowSize(m_window, &display_w, &display_h);
+			m_rectgl.x = 0;
+			m_rectgl.y = 0;
+			m_rectgl.w = display_w;
+			m_rectgl.h = display_h;//修改图像纹理显示大小和区域，和窗体大小无关.
+#endif
+			if (ret = SDL_RenderCopy(m_render, m_textur, nullptr, nullptr)) {
+				SET_STATUS(m_status, E_RUNNERR);
+				err( "SDL_RenderCopy: %s!\n", SDL_GetError());
+				sleepMs(STANDARDTK);
+				continue;
+			}
+			SDL_RenderPresent(m_render);
+			m_vcache->upts = av_frm->upts;
 			if (!m_observer.expired())
-				m_observer.lock()->onMPts(AVMEDIA_TYPE_VIDEO, m_curpts);
+				m_observer.lock()->onMRenderFrame(av_frm);
+			// 6.deque &update execute status.
 			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
+			m_render_Q.popd(av_frm);
 		}
-		av_log(nullptr, AV_LOG_WARNING, "Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Video Mrender finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -287,13 +282,36 @@ VideoMrender::stopd(bool stop_quik)
 	SET_STATUS(m_status, E_STOPPED);
 }
 
-void VideoMrender::pause(bool pauseflag)
+void
+VideoMrender::pushFrame(std::shared_ptr<MRframe> av_frm)
 {
-	VrdrConfig cfg;
-	config(static_cast<void*>(&cfg));
-	cfg.window_paus = pauseflag;
-	update(static_cast<void*>(&cfg));
+	if (AV_PIX_FMT_YUV420P != av_frm->pfrm->format)
+	{// Note: Only rescale for unsupported foramts, convert to I420.
+		AVFrame* pfrm = video_frame_alloc(AV_PIX_FMT_YUV420P, av_frm->pfrm->width, av_frm->pfrm->height);
+		if (!video_rescale(&m_swsctx, pfrm, av_frm->pfrm)) {
+			err("video: pfrm=%p rescale failed...\n", pfrm);
+			video_frame_freep(&pfrm);
+			return;
+		}
+		// update the av_frm parameters...
+		av_frame_free(&av_frm->pfrm);
+		av_frm->pfrm = pfrm;
+		av_frm->pars->width = pfrm->width;
+		av_frm->pars->height = pfrm->height;
+		av_frm->pars->format = pfrm->format;
+	}
+	if (CHK_PROPERTY(av_frm->prop, P_SEEK)) {
+		m_render_Q.clear();
+		msg("video: clear render Que...\n");
+	}
+	if (CHK_PROPERTY(av_frm->prop, P_PAUS)) {
+		dbg("video: pause render Pkt...\n");
+		return;
+	}
+	if (!m_signal_quit)
+		m_render_Q.push(av_frm);
 }
+
 
 void VideoMrender::updateAttributes()
 {
@@ -383,8 +401,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			char sBuf[32];
 			sprintf_s<32>(sBuf, "%p", m_sample);
 			SDL_SetHint(SDL_HINT_VIDEO_WINDOW_SHARE_PIXEL_FORMAT, sBuf);
-			if (nullptr == (m_window = SDL_CreateWindowFrom(m_config->window_hdwn)))
-			{
+			if (nullptr == (m_window = SDL_CreateWindowFrom(m_config->window_hdwn))) {
 				err( "Couldn't create screen for video!: %s!\n", SDL_GetError());
 				return false;
 			}
@@ -401,8 +418,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 
 		// 4.打开视频渲染驱动
 		int32_t best_effort_rdrdrv  = 0;
-		if ((effort_rdrdrv_nums = SDL_GetNumRenderDrivers()) <= 0)
-		{
+		if ((effort_rdrdrv_nums = SDL_GetNumRenderDrivers()) <= 0) {
 			err( "No built-in render drivers\n\n");
 			return false;
 		}else {
@@ -425,8 +441,7 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 			out("--->Using render driver: %s\n\n", m_config->window_rdrv.c_str());
 		}
 		if (nullptr == (m_render = SDL_CreateRenderer(m_window, 
-			best_effort_rdrdrv, SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC)))
-		{
+			best_effort_rdrdrv, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC))) {
 			err( "Couldn't create render for video!: %s!\n", SDL_GetError());
 			return false;
 		}
@@ -434,15 +449,13 @@ VideoMrender::opendVideoDevice(bool is_mrender)
 		// 5.创建视频渲染纹理
 		int32_t v_format = fmtconvert(AVMEDIA_TYPE_VIDEO, m_config->vcodec_pars.v_format);
 		if (nullptr == (m_textur = SDL_CreateTexture(m_render, v_format,// SDL_PIXELFORMAT_IYUV;=YUV420p
-			SDL_TEXTUREACCESS_STREAMING, m_config->vcodec_pars.pix_with, m_config->vcodec_pars.pix_high)))
-		{
+			SDL_TEXTUREACCESS_STREAMING, m_config->vcodec_pars.pix_with, m_config->vcodec_pars.pix_high))) {
 			err( "Couldn't create texture for video!:%s!\n", SDL_GetError());
 			return false;
 		}
 		out("@@@ Open Video device success! display=%s window_id= 0x%x (0-default)\n",
 			m_config->window_disp.c_str(),(long)m_window);
 	}
-
 	return true;
 }
 
@@ -461,7 +474,7 @@ VideoMrender::closeVideoDevice(bool is_mrender)
 			SDL_DestroyRenderer(m_render);
 			m_render = nullptr;
 		}
-		if (nullptr != m_window){
+		if (nullptr != m_window) {
 			if (m_window == m_sample)
 				m_sample = nullptr;
 			SDL_DestroyWindow(m_window);
@@ -478,13 +491,8 @@ VideoMrender::closeVideoDevice(bool is_mrender)
 bool
 VideoMrender::resetVideoDevice(bool is_mrender)
 {
-	if (is_mrender)
-	{
-		closeVideoDevice(is_mrender);
-		return opendVideoDevice(is_mrender);
-	}
-
-	return false;
+	closeVideoDevice(is_mrender);
+	return opendVideoDevice(is_mrender);
 }
 
 std::shared_ptr<IMrender>
@@ -499,9 +507,15 @@ AudioMrender::AudioMrender(const char* speakr,
 	m_observer(observer)
 {
 	SET_STATUS(m_status, E_INVALID);
-	/***do init thing***/
+
 	m_config = std::make_shared<ArdrConfig>();
-	m_config->speakr_name = speakr;
+	m_config->speakr_name = speakr;	
+	m_ssidNo = g_amrender_ssidNo++;
+	m_acache = std::make_shared<MRframe>();
+	m_acache->ssid = m_ssidNo;
+	m_acache->type = AVMEDIA_TYPE_AUDIO;
+	SET_PROPERTY(m_acache->prop, P_PAUS);
+
 	SET_STATUS(m_status, E_INITRES);
 }
 
@@ -543,8 +557,14 @@ int32_t
 AudioMrender::cached(void)
 {
 	int32_t queue_size = (int32_t)SDL_GetQueuedAudioSize(m_audio_devID);
-	msg("SDL_GetQueuedAudioSize=%d\n", queue_size);
+	dbg("SDL_GetQueuedAudioSize=%d\n", queue_size);
 	return queue_size;
+}
+
+int32_t \
+AudioMrender::ssidNo(void)
+{
+	return m_ssidNo;
 }
 
 STATUS
@@ -610,19 +630,30 @@ AudioMrender::start()
 			}
 			if (!(av_pcmalaw_clone2buffer(av_frm->pfrm, std::get<0>(m_buffer), std::get<1>(m_buffer))))
 				continue;
-			// 3.get audio data for playback.
-			if (!m_config->speakr_paus) {
-				if ((ret = SDL_QueueAudio(m_audio_devID, std::get<0>(m_buffer), std::get<1>(m_buffer))))
+			// 3.handle SDL2 pause actions.
+			SDL_PauseAudioDevice(m_audio_devID, m_config->speakr_paus);
+			if (m_config->speakr_paus) {
+				SET_STATUS(m_status, E_PAUSING);
+				if (!m_observer.expired())
+					m_observer.lock()->onMRenderFrame(m_acache);
+				sleepMs(STANDARDTK);
+				continue;
+			}
+			// 4.get audio data for playback.
+			if (cached() <= std::get<1>(m_buffer)) {
+				if ((ret = SDL_QueueAudio(m_audio_devID, std::get<0>(m_buffer), std::get<1>(m_buffer)))) {
+					sleepMs(STANDARDTK);
 					continue;
-				m_curpts = av_frm->upts;
+				}	
+				m_acache->upts = av_frm->upts;
+				if (!m_observer.expired())
+					m_observer.lock()->onMRenderFrame(av_frm);
 				m_render_Q.popd(av_frm);
 			}
-			// 4.callback...
-			if (!m_observer.expired())
-				m_observer.lock()->onMPts(AVMEDIA_TYPE_AUDIO, m_curpts);
-			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
+			// 6.deque &update execute status.
+			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));			
 		}
-		av_log(nullptr, AV_LOG_WARNING, "Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Audio Mrender finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -639,7 +670,7 @@ AudioMrender::stopd(bool stop_quik)
 }
 
 void
-AudioMrender::onMFrm(std::shared_ptr<MRframe> av_frm)
+AudioMrender::pushFrame(std::shared_ptr<MRframe> av_frm)
 {
 	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
 	{// Note: Only resmple for unsupported foramts,convert to fltp.
@@ -694,8 +725,7 @@ AudioMrender::opendAudioDevice(bool is_mrender )
 	int32_t effort_driver_nums = 0, effort_device_nums = 0, effort_rdrdrv_nums = 0;
 	char*   effort_driver_name = 0, *effort_device_name = 0, *effort_rdrdrv_name = 0;
 
-	if (is_mrender)
-	{
+	if (is_mrender) {
 		std::lock_guard<std::mutex> locker(speakr_lock);
 		// 1.打开音频设备驱动.
 		if ((effort_driver_nums = SDL_GetNumAudioDrivers()) <= 0) {
@@ -783,9 +813,6 @@ AudioMrender::closeAudioDevice(bool is_mrender)
 bool 
 AudioMrender::resetAudioDevice(bool is_mrender)
 {
-	if (is_mrender) {
-		closeAudioDevice(is_mrender);
-		return opendAudioDevice(is_mrender);
-	}
-	return false;
+	closeAudioDevice(is_mrender);
+	return opendAudioDevice(is_mrender);
 }
