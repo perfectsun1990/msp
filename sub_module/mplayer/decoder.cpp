@@ -115,7 +115,8 @@ void AudioDecoder::start(void)
 	m_signal_quit = false;
 	m_worker = std::thread([&]()
 	{
-		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
+		std::map<double, int64_t> cache_props;
+		for (int64_t loop = 0,try_count=0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
 		{
 			int32_t ret = 0;
 			std::shared_ptr<MPacket> av_pkt = nullptr;
@@ -125,10 +126,10 @@ void AudioDecoder::start(void)
 				continue;
 			}
 			// 2.check and reset decoder.
-			if (  !m_codec_par
-				|| m_codec_par->format		!= av_pkt->pars->format
+			if (!m_codec_par
+				|| m_codec_par->format != av_pkt->pars->format
 				|| m_codec_par->sample_rate != av_pkt->pars->sample_rate
-				|| m_codec_par->channels	!= av_pkt->pars->channels ){
+				|| m_codec_par->channels != av_pkt->pars->channels) {
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
 					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
@@ -136,7 +137,7 @@ void AudioDecoder::start(void)
 				m_signal_rset = true;
 			}
 			if (m_signal_rset) {
-				if (1 != av_pkt->ppkt->flags ) {
+				if (!(AV_PKT_FLAG_KEY & av_pkt->ppkt->flags)) {
 					m_decoder_Q.popd(av_pkt);
 					continue;
 				}
@@ -148,24 +149,32 @@ void AudioDecoder::start(void)
 					continue;
 				}
 				m_signal_rset = false;
+				cache_props.clear();
 				SET_STATUS(m_status, E_STARTED);
-				war("Reset audio Codecer!\n");
+				war("Reset audio Decoder!\n");
 			}
-			
-			if ( m_config->pauseflag) {
+
+			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
 				if (!m_observer.expired())
 					m_observer.lock()->onDecoderFrame(m_acache);
 				sleepMs(STANDARDTK);
 				continue;
 			}
+			if (CHK_PROPERTY(av_pkt->prop, P_SEEK))
+				avcodec_flush_buffers(m_codec_ctx);
+			if (av_pkt->prop != 0) {// cache different props.
+				cache_props[av_pkt->upts] = av_pkt->prop;
+				msg("audio cache upts=[%lf] prop=%ld\n", av_pkt->upts, av_pkt->prop);
+			}
+
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/44100->44100>
 			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);
 			// 4. send packet to decoder.
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
-					err("avcodec_send_packet failed! ret=%d\n", ret);
+					err("avcodec_send_packet failed! ret=%s\n", averr2str(ret));
 					m_decoder_Q.popd(av_pkt);
 					m_signal_rset = true;
 				}
@@ -173,21 +182,38 @@ void AudioDecoder::start(void)
 				continue;
 			}
 			// 5.receive frame from decoder.
-			while (true){
+			for (int32_t sequence = 0;; ++sequence) {
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0) {
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						err("Decoding failed!ret=%d\n", ret);
+						err("Decoding failed!ret=%s\n", averr2str(ret));
 					break;
-				}
+				}				
 				av_frm->ssid = m_ssidNo;
 				av_frm->type = av_pkt->type;
-				av_frm->prop = av_pkt->prop;
+				av_frm->ufps = av_pkt->ufps;
+				av_frm->prop = 0;
 				av_frm->sttb = m_codec_ctx->time_base;// eg.1/44100
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
 				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb);
+				if (!cache_props.empty()) {
+					for (auto iter = cache_props.begin(); iter != cache_props.end();) {
+						if (fabs(av_frm->upts - iter->first) < 0.001) {
+							av_frm->prop = iter->second;
+							cache_props.erase(iter++);
+							war("audio remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);							
+						}else {
+							if (av_frm->upts - iter->first > 0) {
+								av_frm->prop = iter->second;
+								cache_props.erase(iter);
+								war("!!!audio remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
+							}
+							iter++;
+						}
+					}
+				}
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
-					err("avcodec_parameters_copy failed! ret=%d\n", ret);
+					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
 					break;
 				}
 				m_acache->upts = av_frm->upts;
@@ -275,8 +301,18 @@ bool AudioDecoder::opendCodecer(bool is_decoder)
 			err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
 			return false;
 		}
-		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
 			m_codec_ctx->framerate = m_framerate;
+			if (m_codec_ctx->codec_id == AV_CODEC_ID_H264) {
+				av_dict_set(&opts, "preset", "superfast", 0);
+				av_dict_set(&opts, "tune", "zerolatency", 0);
+			}
+			if (m_codec_ctx->codec_id == AV_CODEC_ID_H265) {
+				av_dict_set(&opts, "x265-params", "qp=20", 0);
+				av_dict_set(&opts, "tune", "zero-latency", 0);
+				av_dict_set(&opts, "preset", "ultrafast", 0);
+			}
+		}
 		// Open decoder base on m_codec & m_codec_ctx.
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
 			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
@@ -370,6 +406,7 @@ void VideoDecoder::start(void)
 	m_signal_quit = false;
 	m_worker = std::thread([&]()
 	{
+		std::map<double, int64_t> cache_props;
 		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
 		{
 			int32_t ret = 0;
@@ -392,7 +429,7 @@ void VideoDecoder::start(void)
 				m_signal_rset = true;
 			}
 			if(m_signal_rset) {
-				if (1 != av_pkt->ppkt->flags) {
+				if (!(AV_PKT_FLAG_KEY & av_pkt->ppkt->flags)) {
 					m_decoder_Q.popd(av_pkt);
 					continue;
 				}
@@ -402,11 +439,11 @@ void VideoDecoder::start(void)
 					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
 						sleepMs(STANDARDTK);//3s.
 					continue;
-				}
-
+				}				
 				m_signal_rset = false;
+				cache_props.clear();
 				SET_STATUS(m_status, E_STARTED);
-				war("Reset video Codecer!\n");
+				war("Reset video Decoder!\n");
 			}
 			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
@@ -415,9 +452,16 @@ void VideoDecoder::start(void)
 				sleepMs(STANDARDTK);
 				continue;
 			}
+			if (CHK_PROPERTY(av_pkt->prop, P_SEEK))
+				avcodec_flush_buffers(m_codec_ctx);
+			if (av_pkt->prop != 0) {// cache different props.
+				cache_props[av_pkt->upts] = av_pkt->prop;
+				msg("video cache upts=[%lf] prop=%ld\n", av_pkt->upts, av_pkt->prop);
+			}
+
 			// 3.scale AVPacket timebase. <stream->codec: eg.1/90000->1/25>
 			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);			
-			// 4. send packet to decoder.
+			// 4. send packet to decoder.		
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
@@ -429,8 +473,7 @@ void VideoDecoder::start(void)
 				continue;
 			}
 			// 5.recv frame from decoder.
-			while (true) 
-			{
+			for (int32_t sequence = 0;; ++sequence) {
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0){
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
@@ -438,11 +481,28 @@ void VideoDecoder::start(void)
 					break;
 				}
 				av_frm->ssid = m_ssidNo;
-				av_frm->type = av_pkt->type;
-				av_frm->prop = av_pkt->prop;
+				av_frm->type = av_pkt->type;				
+				av_frm->ufps = av_pkt->ufps;
+				av_frm->prop = 0;
 				av_frm->sttb = m_codec_ctx->time_base;//av_frm->sttb=1/25
 				av_frm->pfrm->pts = av_frm->pfrm->best_effort_timestamp;
-				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb); //maybe diff with av_pkt->upts;
+				av_frm->upts = av_frm->pfrm->pts* av_q2d(av_frm->sttb);
+				if (!cache_props.empty()) {
+					for (auto iter = cache_props.begin(); iter != cache_props.end();) {
+						if (fabs(av_frm->upts - iter->first) < 0.001) {
+							av_frm->prop = iter->second;
+							cache_props.erase(iter++);
+							war("video remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
+						}else {
+							if (av_frm->upts - iter->first > 0) {
+								av_frm->prop = iter->second;
+								cache_props.erase(iter);
+								war("!!!video remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
+							}
+							iter++;
+						}
+					}
+				}
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
 					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));

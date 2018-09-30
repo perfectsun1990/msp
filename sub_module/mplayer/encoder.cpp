@@ -128,9 +128,9 @@ AudioEncoder::start(void)
 			}
 			// 2.check and reset encoder.
 			if (!m_codec_par
-				|| m_codec_par->format != av_frm->pars->format
+				|| m_codec_par->format		!= av_frm->pars->format
 				|| m_codec_par->sample_rate != av_frm->pars->sample_rate
-				|| m_codec_par->channels != av_frm->pars->channels) {
+				|| m_codec_par->channels	!= av_frm->pars->channels) {
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_frm->pars)) < 0) {
 					err("avcodec_parameters_copy failed! ret=%d\n", ret);
 					break;
@@ -138,10 +138,8 @@ AudioEncoder::start(void)
 				m_signal_rset = true;
 			}
 			if (m_signal_rset) {
-				if (1 != av_frm->pfrm->key_frame) {
-					m_encoder_Q.popd(av_frm);
-					continue;
-				}
+				av_frm->pfrm->key_frame = 1;//unuse
+				m_framerate  = av_frm->ufps;//unuse
 				if (!resetCodecer()) {
 					SET_STATUS(m_status, E_STRTERR);
 					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
@@ -150,7 +148,7 @@ AudioEncoder::start(void)
 				}
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
-				war("Reset audio Codecer!\n");
+				war("Reset audio Encoder!\n");
 			}
 
 			if (m_config->pauseflag) {
@@ -161,6 +159,7 @@ AudioEncoder::start(void)
 				continue;
 			}
 			// 3. set AVFrame attributes.
+			PUR_PROPERTY(av_frm->prop);
 			av_frm->pfrm->pict_type = AV_PICTURE_TYPE_NONE;
 			av_frm->pfrm->pts = (i+=av_frm->pfrm->nb_samples);
 			// 4. send packet to decoder.
@@ -183,7 +182,7 @@ AudioEncoder::start(void)
 					break;
 				}
 				// scale AVPacket timebase. <codec->stream: eg.1/44100->1/44100>
-				AVRational dst_timebase = { 1, 44100 };//计算实际的时间戳33|23ms
+				AVRational dst_timebase = { 1, m_codec_par->sample_rate };//计算实际的时间戳33|23ms
 				av_packet_rescale_ts(av_pkt->ppkt, m_codec_ctx->time_base, dst_timebase);
 				av_pkt->ssid = m_ssidNo;
 				av_pkt->type = av_frm->type;
@@ -204,7 +203,7 @@ AudioEncoder::start(void)
 			m_encoder_Q.popd(av_frm);
 
 		}
-		war("Audio decoder finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Audio encoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -282,22 +281,24 @@ AudioEncoder::opendCodecer(bool is_decoder)
 			return false;
 		}
 		if (AVMEDIA_TYPE_AUDIO == m_codec_par->codec_type) {
-			m_codec_ctx->codec_id = m_codec_par->codec_id;
-			m_codec_ctx->frame_size = m_codec_par->frame_size;	//默认生成:1024spf
-			m_codec_ctx->sample_rate = m_codec_par->sample_rate;
+			m_codec_ctx->codec_id		= m_codec_par->codec_id;
+			m_codec_ctx->frame_size		= m_codec_par->frame_size;	//default:1024spf
+			m_codec_ctx->sample_rate	= m_codec_par->sample_rate;
 			m_codec_ctx->channel_layout = m_codec_par->channel_layout;
-			m_codec_ctx->channels = av_get_channel_layout_nb_channels(m_codec_ctx->channel_layout);
-			m_codec_ctx->sample_fmt =(AVSampleFormat)m_codec_par->format;
-			m_codec_ctx->time_base.num = 1;
-			m_codec_ctx->time_base.den = m_codec_ctx->sample_rate;
-			m_codec_ctx->profile = FF_PROFILE_AAC_LOW;
-			m_codec_ctx->bit_rate = m_codec_par->bit_rate;
+			m_codec_ctx->channels		= av_get_channel_layout_nb_channels(m_codec_ctx->channel_layout);
+			m_codec_ctx->sample_fmt		=(AVSampleFormat)m_codec_par->format;
+			m_codec_ctx->time_base.num	= 1;
+			m_codec_ctx->time_base.den	= m_codec_par->sample_rate;
+			m_codec_ctx->profile		= m_codec_par->profile;// FF_PROFILE_AAC_LOW;
+			m_codec_ctx->bit_rate		= m_codec_par->bit_rate;
 			/* Third parameter can be used to pass settings to encoder */
 			if (m_codec_ctx->codec_id == AV_CODEC_ID_AAC) {
 				av_dict_set(&opts, "preset", "superfast", 0);
 				av_dict_set(&opts, "tune", "zerolatency", 0);
 			}
 		}
+		// Note: if you need sps/pps per frame,forbiden it.
+		//m_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
 			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
 			return false;
@@ -414,10 +415,8 @@ VideoEncoder::start(void)
 				m_signal_rset = true;
 			}
 			if (m_signal_rset) {
-				if (1 != av_frm->pfrm->key_frame) {
-					m_encoder_Q.popd(av_frm);
-					continue;
-				}
+				av_frm->pfrm->key_frame = 1;
+				m_framerate  = av_frm->ufps;
 				if (!resetCodecer()) {
 					SET_STATUS(m_status, E_STRTERR);
 					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
@@ -436,6 +435,7 @@ VideoEncoder::start(void)
 				continue;
 			}
 			// 3. set AVFrame attributes.
+			PUR_PROPERTY(av_frm->prop);
 			av_frm->pfrm->pict_type = AV_PICTURE_TYPE_NONE;
 			av_frm->pfrm->pts = i++;
 			// 4. send frames to encoder.
@@ -459,7 +459,7 @@ VideoEncoder::start(void)
 					break;
 				}
 				// scale AVPacket timebase. <codec->stream: eg.1/25->1/90000|1/1000>
-				AVRational dst_timebase = { 1, 90000 };//stream timebase.
+				AVRational dst_timebase = { 1, 90000 };//const stream timebase.
 				av_packet_rescale_ts(av_pkt->ppkt, m_codec_ctx->time_base, dst_timebase);
 				av_pkt->ssid = m_ssidNo;
 				av_pkt->type = av_frm->type;
@@ -480,7 +480,7 @@ VideoEncoder::start(void)
 			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
 			m_encoder_Q.popd(av_frm);
 		}
-		war("Video decoder finished! m_signal_quit=%d\n", m_signal_quit);
+		war("Video encoder finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -560,16 +560,15 @@ VideoEncoder::opendCodecer(bool is_decoder)
 			m_codec_ctx->codec_id		= m_codec_par->codec_id;
 			m_codec_ctx->pix_fmt		= (AVPixelFormat)m_codec_par->format;
 			m_codec_ctx->bit_rate		= m_codec_par->bit_rate;
-			m_codec_ctx->framerate.num	= 25;
-			m_codec_ctx->framerate.den	= 1;
+			m_codec_ctx->framerate		= m_framerate;//must be correct.
 			m_codec_ctx->time_base.num	= m_codec_ctx->framerate.den;
 			m_codec_ctx->time_base.den	= m_codec_ctx->framerate.num;
 			m_codec_ctx->width			= m_codec_par->width;
 			m_codec_ctx->height			= m_codec_par->height;
 			m_codec_ctx->profile		= m_codec_par->profile;
-			m_codec_ctx->gop_size		= m_codec_ctx->framerate.num;
-			m_codec_ctx->max_b_frames	= 0;
-			m_codec_ctx->refs			= 1;
+// 			m_codec_ctx->gop_size		= m_codec_ctx->framerate.num;
+// 			m_codec_ctx->max_b_frames	= 0;
+// 			m_codec_ctx->refs			= 1;
 			m_codec_ctx->level			= m_codec_par->level;
 			/* Third parameter can be used to pass settings to encoder */
 			if (m_codec_ctx->codec_id == AV_CODEC_ID_H264) {
@@ -582,6 +581,8 @@ VideoEncoder::opendCodecer(bool is_decoder)
 				av_dict_set(&opts, "preset", "ultrafast", 0);
 			}
 		}
+		// Note: if you need sps/pps per frame,forbiden it.
+		//m_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
 			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
 			return false;

@@ -734,6 +734,7 @@ struct MRframe
 	int64_t				prop{  0 };//specif prop, such as seek.
 	AVRational			sttb{  0 };//av_codec->timebase.
 	double				upts{  0 };//user pts in second.<must be orderly>
+	AVRational			ufps{  0 };//user fps.eg.25.
 	AVCodecParameters*	pars{ nullptr };
 	AVFrame* 			pfrm{ nullptr };
 };
@@ -1040,19 +1041,17 @@ debug_write_420p(AVFrame *frame)
 }
 
 static inline void
-debug_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt, const char *tag)
+debug_packet(AVRational *time_base, const AVPacket *pkt, const char *tag)
 {
-	AVRational *time_base = &fmt_ctx->streams[pkt->stream_index]->time_base;
 	printf("[PACKET]%s #stream-%d# (%d/%d): iskey=%d, pts:%lld pts_time=%0.6g(s) dts:%lld dts_time=%0.6g(s) duration=%lld, duration_time=%0.6g(ms)\n",
 		tag, pkt->stream_index, time_base->num, time_base->den, pkt->flags,
 		pkt->pts, pkt->pts*av_q2d(*time_base), pkt->dts, pkt->dts*av_q2d(*time_base), pkt->duration, 1000 * pkt->duration*av_q2d(*time_base));
 }
 
 static inline void
-debug_frames(const AVCodecContext *codec_ctx, const AVFrame *frm, const char *tag)
+debug_frames(AVRational *time_base, const AVFrame *frm, const char *tag)
 {
 	bool is_audio = (frm->width == 0);
-	const AVRational *time_base = &codec_ctx->time_base;
 	printf("[FRAMES]%s #baudio-%d# (%d/%d): iskey=%d, pts:%lld pts_time=%0.6g(s) -->pkt_dts:%lld pkt_duration=%lld pkt_duration_time=%0.6g(ms)\n",
 		tag, is_audio, time_base->num, time_base->den, frm->key_frame,
 		frm->pts, frm->pts*av_q2d(*time_base), frm->pkt_dts, frm->pkt_duration, 1000 * frm->pkt_duration*av_q2d(*time_base));

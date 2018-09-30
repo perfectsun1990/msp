@@ -18,7 +18,7 @@ MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver
 
 	m_config = std::make_shared<MemxConfig>();
 	m_config->urls = output;
-	m_config->rdtimeout = 10;
+	m_config->wrtimeout = 10;
 
 	m_ssidNo = g_enmuxer_ssidNo++;
 	m_acache = std::make_shared<MPacket>();
@@ -29,6 +29,10 @@ MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver
 	m_vcache->ssid = m_ssidNo;
 	m_vcache->type = AVMEDIA_TYPE_VIDEO;
 	SET_PROPERTY(m_vcache->prop, P_PAUS);
+	m_vcodec_par = avcodec_parameters_alloc();
+	m_acodec_par = avcodec_parameters_alloc();
+	m_vcodec_par->format = AV_PIX_FMT_NONE;
+	m_acodec_par->format = AV_PIX_FMT_NONE;
 
 	SET_STATUS(m_status, E_INITRES);
 }
@@ -36,6 +40,8 @@ MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver
 MediaEnmuxer::~MediaEnmuxer()
 {
 	stopd(true);
+	avcodec_parameters_free(&m_vcodec_par);
+	avcodec_parameters_free(&m_acodec_par);
 }
 
 int32_t
@@ -84,100 +90,94 @@ MediaEnmuxer::pause(bool pauseflag)
 }
 
 void
-MediaEnmuxer::seekp(int64_t seektp)
-{
-	std::lock_guard<std::mutex> locker(m_cmutex);
-	if (m_seek_done) {
-		m_seek_done = false;
-		m_config->seek_flag = AVSEEK_FLAG_BACKWARD;
-		m_config->seek_time = seektp;
-		msg("seek to %lld ms \n", m_config->seek_time / 1000);
-	}
-}
-
-void
 MediaEnmuxer::start(void)
 {
 	CHK_RETURN(E_INITRES != status() && E_STOPPED != status());
 	SET_STATUS(m_status, E_STRTING);
 
 	m_signal_quit = false;
-	m_worker = std::thread([&](void)
+	m_worker = std::thread([&]()
 	{
 		for (int64_t loop = 0; !m_signal_quit; ++loop, m_last_loop = av_gettime())
 		{
-			// Send pause packets to observer.
+			int32_t ret = 0;
+			std::shared_ptr<MPacket> a_pkt = nullptr,v_pkt = nullptr, p_pkt = nullptr;
+			// 1.pause to write  av packets.
 			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
-				if (!m_observer.expired()) {
+				if (!m_observer.expired())
 					m_observer.lock()->onEnmuxerPackt(m_acache);
-					m_observer.lock()->onEnmuxerPackt(m_vcache);
-				}
 				sleepMs(STANDARDTK);
 				continue;
 			}
-			// General new packets for demuxer.
-			int32_t	ret = -1;
-			std::shared_ptr<MPacket> av_pkt = std::make_shared<MPacket>();
-			if (!m_fmtctx || m_config->urls.compare(m_fmtctx->filename))
+			// 2.receive and mux av packets.
+			if (!m_aenmuxer_Q.try_peek(a_pkt) || !m_venmuxer_Q.try_peek(v_pkt)) {
+				sleepMs(STANDARDTK);
+				continue;
+			}
+			if (nullptr == a_pkt && nullptr != v_pkt)
+				p_pkt = v_pkt;
+			if (nullptr != a_pkt && nullptr == v_pkt)
+				p_pkt = a_pkt;
+			if (nullptr != a_pkt && nullptr != v_pkt)
+				p_pkt = (a_pkt->upts < v_pkt->upts) ? a_pkt : v_pkt;
+
+			// 3.check and reset av enmuxer.
+			if (AVMEDIA_TYPE_AUDIO == p_pkt->type && ( m_acodec_par->format	!= p_pkt->pars->format
+				|| m_acodec_par->sample_rate != p_pkt->pars->sample_rate
+				|| m_acodec_par->channels	 != p_pkt->pars->channels)) {
+				if ((ret = avcodec_parameters_copy(m_acodec_par, p_pkt->pars)) < 0)
+					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+				m_atime_base  = p_pkt->sttb;
 				m_signal_rset = true;
+			}
+			if (AVMEDIA_TYPE_VIDEO == p_pkt->type && ( m_vcodec_par->format != p_pkt->pars->format
+				|| m_vcodec_par->width  != p_pkt->pars->width
+				|| m_vcodec_par->height != p_pkt->pars->height)) {
+				if (!(AV_PKT_FLAG_KEY & p_pkt->ppkt->flags)) {
+					m_venmuxer_Q.popd(p_pkt);
+					continue;
+				}
+				if ((ret = avcodec_parameters_copy(m_vcodec_par, p_pkt->pars)) < 0)
+					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+				m_vtime_base  = p_pkt->sttb;
+				m_signal_rset = true;
+			}
 			if (m_signal_rset) {
-				if (!resetMudemuxer(true)) {
+				if (!resetMudemuxer()) {
 					SET_STATUS(m_status, E_STRTERR);
 					for (ret = 0; ret < 300 && !m_signal_quit; ++ret)
 						sleepMs(STANDARDTK);//3s.
 					continue;
 				}
-				SET_PROPERTY(av_pkt->prop, P_BEGP);
-				m_signal_rset = false;
+				m_signal_rset = false;			
 				SET_STATUS(m_status, E_STARTED);
+				war("Reset media Enmuxer!,has stream[A=%d,V=%d]\n", (bool)m_audio_stream, (bool)m_video_stream);
 			}
-			// Seek and read frame from source.
-			if (nullptr == av_pkt->ppkt || !handleSeekAction()) {
-				SET_STATUS(m_status, E_RUNNERR);
-				sleepMs(STANDARDTK);
-				continue;
-			}
-			if ((ret = av_read_frame(m_fmtctx, av_pkt->ppkt)) < 0) {
-				SET_STATUS(m_status, E_RUNNERR);
-				if (ret != AVERROR_EOF)
-					err("av_read_frame failed! ret=%s\n", averr2str(ret));
-				m_signal_rset = IsNetStream(m_fmtctx->filename);
-				sleepMs(STANDARDTK);
-				continue;
-			}
-			av_pkt->ssid = m_ssidNo;
-			av_pkt->type = m_fmtctx->streams[av_pkt->ppkt->stream_index]->codecpar->codec_type;
-			av_pkt->sttb = m_fmtctx->streams[av_pkt->ppkt->stream_index]->time_base;
-			av_pkt->upts = av_pkt->ppkt->pts * av_q2d(av_pkt->sttb);
-			av_pkt->ufps = (av_pkt->type == AVMEDIA_TYPE_VIDEO) ? m_av_fps : av_pkt->ufps;
-			if ((ret = avcodec_parameters_copy(av_pkt->pars, m_fmtctx->streams[av_pkt->ppkt->stream_index]->codecpar)) < 0) {
-				SET_STATUS(m_status, E_RUNNERR);
-				err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
-				continue;
-			}
-			if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {// update audio cache and status.
-				if (!m_seek_apkt) {
-					SET_PROPERTY(av_pkt->prop, P_SEEK);
-					m_seek_apkt = true;
+			// 5.write audio or video packet.
+// 			if ((v_pkt->upts >= last_apktupts) && (v_pkt->upts >= last_vpktupts)
+// 				|| (a_pkt->upts >= last_apktupts) && (a_pkt->upts >= last_vpktupts))
+			{
+				AVStream* p_stream = (AVMEDIA_TYPE_AUDIO == p_pkt->type) ? m_audio_stream : m_video_stream;
+				av_packet_rescale_ts(p_pkt->ppkt, p_pkt->sttb, p_stream->time_base);
+				war("p_pkt->ppkt.pts=%lf [%d,%d]\n", p_pkt->upts, p_pkt->sttb.den, p_stream->time_base.den);
+				p_pkt->ppkt->stream_index = p_stream->index;
+				if ((ret = av_interleaved_write_frame(m_fmtctx, p_pkt->ppkt)) < 0) {
+					err("!!av_interleaved_write_frame failed! ret=%s\n", averr2str(ret));
+					sleepMs(STANDARDTK);
+					continue;
 				}
-				m_acache->upts = av_pkt->upts;
+				if (!m_observer.expired())
+					m_observer.lock()->onEnmuxerPackt(p_pkt);
+				// 6.deque &update execute status.
+				if (AVMEDIA_TYPE_AUDIO == p_pkt->type)
+					m_aenmuxer_Q.popd(p_pkt);
+				if (AVMEDIA_TYPE_VIDEO == p_pkt->type)
+					m_venmuxer_Q.popd(p_pkt);
 			}
-			if (av_pkt->type == AVMEDIA_TYPE_VIDEO) {// update video cache and status.
-				if (!m_seek_vpkt) {
-					SET_PROPERTY(av_pkt->prop, P_SEEK);
-					m_seek_vpkt = true;
-				}
-				m_vcache->upts = av_pkt->upts;
-			}
-			// Send media packets to observer.
-			if (!m_observer.expired())
-				m_observer.lock()->onEnmuxerPackt(av_pkt);
-			// Update readonly cfg attributes.
-			m_config->mdmx_pars.curr_time = av_pkt->upts;
 			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
 		}
-		war("Media Demuxer finished! m_signal_quit=%d\n", m_signal_quit);
+		war("media enmuxer finished! m_signal_quit=%d\n", m_signal_quit);
 	});
 }
 
@@ -188,8 +188,23 @@ MediaEnmuxer::stopd(bool stop_quik)
 	SET_STATUS(m_status, E_STOPING);
 	m_signal_quit = true;
 	if (m_worker.joinable()) m_worker.join();
-	closeMudemuxer(true);
+	closeMudemuxer();
 	SET_STATUS(m_status, E_STOPPED);
+}
+
+void
+MediaEnmuxer::pushPackt(std::shared_ptr<MPacket> av_pkt)
+{
+	if (!m_signal_quit) {
+		if (AVMEDIA_TYPE_AUDIO == av_pkt->type) {
+			if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
+				m_aenmuxer_Q.push(av_pkt);
+		}
+		if (AVMEDIA_TYPE_VIDEO == av_pkt->type) {
+			if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
+				m_venmuxer_Q.push(av_pkt);
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -199,32 +214,19 @@ MediaEnmuxer::updateAttributes(void)
 {
 }
 
-bool
-MediaEnmuxer::handleSeekAction(void)
-{
-	if (!m_seek_done) {
-		MemxConfig cfg;
-		config(&cfg);
-		cfg.seek_time = (cfg.seek_time > m_fmtctx->duration) ? m_fmtctx->duration : cfg.seek_time;
-		cfg.seek_time = (cfg.seek_time < 0) ? 0 : cfg.seek_time;
-		if (av_seek_frame(m_fmtctx, -1, cfg.seek_time + m_fmtctx->start_time, cfg.seek_flag) < 0) {
-			err("Can't seek stream: %lld", cfg.seek_time);
-			return false;
-		}
-		m_seek_apkt = false;
-		m_seek_vpkt = false;
-		m_seek_done = true;
-		update(&cfg);
-	}
-	return true;
-}
 
 void
 MediaEnmuxer::closeMudemuxer(bool is_demuxer)
 {
-	if (is_demuxer) {
-		if (nullptr != m_fmtctx)
-			avformat_close_input(&m_fmtctx);
+	if (!is_demuxer) {
+		if (m_fmtctx) {
+			av_write_trailer(m_fmtctx);
+			if (!(m_fmtctx->flags & AVFMT_NOFILE))
+				avio_closep(&m_fmtctx->pb);
+			avformat_free_context(m_fmtctx);
+			m_fmtctx = nullptr;
+			av_bsf_free(&bsf_ctx);
+		}
 		m_signal_rset = true;
 	}
 }
@@ -241,46 +243,77 @@ MediaEnmuxer::opendMudemuxer(bool is_demuxer)
 	avfilter_register_all();
 	avformat_network_init();
 
-	if (is_demuxer)
-	{// 2.Fill m_fmtctx and m_fmtctx->iformat<AVInputFormat> etc.
+	if (!is_demuxer)
+	{// 2.Fill m_fmtctx and m_fmtctx->oformat<AVOutputFormat> etc.
 		if (nullptr == m_fmtctx) {
-			// Policy for connect timeout,protcol etc...		
-			if (IsNetStream(m_config->urls.c_str())) {
-				av_dict_set(&opts, "rtsp_transport", "tcp", 0);	//rtsp udp maybe blurred.
-				av_dict_set(&opts, "rtmp_transport", "tcp", 0); //rtmp default.
-				av_dict_set(&opts, "fflags", "nobuffer", 0);	//specify don't cache.buffersize
-				av_dict_set(&opts, "stimeout", "3000000", 0);	//connect delay 3s.
+			if (strstr(m_config->urls.c_str(), "rtmp:")) {
+				msg("network....\n");
+				avformat_alloc_output_context2(&m_fmtctx, nullptr,   "flv", m_config->urls.c_str());
+			}else {// Base on urls to deduce the oformat.
+				avformat_alloc_output_context2(&m_fmtctx, nullptr, nullptr, m_config->urls.c_str());
 			}
-			// Policy for resove av_read_frame block,play low delay.
-			m_fmtctx = avformat_alloc_context();
-			m_fmtctx->probesize = 128 * 1024;					//def:5M,can be set smaller.
-			m_fmtctx->max_delay = 100 * 1000;					//m_fmtctx->flush_packets = 1;
-			m_fmtctx->max_analyze_duration = 1000000;			//rapid load, max_duration:2s
-			m_fmtctx->interrupt_callback.opaque = this;
-			m_fmtctx->interrupt_callback.callback = [](void* ctx)->int32_t {
-				MediaEnmuxer* pthis = (MediaEnmuxer*)ctx;		//break when read frame block.
-				if ((av_gettime() - pthis->m_last_loop) > pthis->m_config->rdtimeout * 1000 * 1000) {
-					war("--->>> Hi! stream is diconnected!\n");
-					pthis->m_last_loop = av_gettime();
-					return AVERROR_EOF;
+			if (!m_fmtctx) {
+				err("Could not create output context!\n");
+				return false;
+			}
+			//m_format = m_fmtctx->oformat;
+			if (AV_PIX_FMT_NONE != m_acodec_par->format) {// Add audio stream to m_fmtctx.				
+				m_fmtctx->audio_codec_id = m_acodec_par->codec_id;
+				m_fmtctx->oformat->audio_codec = m_acodec_par->codec_id;
+				m_audio_stream = avformat_new_stream(m_fmtctx, avcodec_find_encoder(m_acodec_par->codec_id));
+				if (!m_audio_stream) {
+					err("Failed allocating output stream\n");
+					return false;
 				}
-				return 0;
-			};
-			if ((ret = avformat_open_input(&m_fmtctx, m_config->urls.c_str(), NULL, &opts)) < 0) {
-				err("Open  urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
+				if ((ret = avcodec_parameters_copy(m_audio_stream->codecpar, m_acodec_par)) < 0) {
+					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					return false;
+				}
+				m_audioindex = m_audio_stream->index;
+				m_audio_stream->codecpar->codec_tag = 0;//没有补充信息，Additional information about the codec
+// 				if (m_fmtctx->oformat->flags & AVFMT_GLOBALHEADER)
+// 					m_audio_stream->codecpar->flags |= CODEC_FLAG_GLOBAL_HEADER;
+			}
+			if (AV_PIX_FMT_NONE != m_vcodec_par->format) {	// Add video stream to m_fmtctx.
+				m_fmtctx->video_codec_id = m_vcodec_par->codec_id;
+				m_fmtctx->oformat->video_codec = m_vcodec_par->codec_id;
+				m_video_stream = avformat_new_stream(m_fmtctx, avcodec_find_encoder(m_vcodec_par->codec_id));
+				if (!m_video_stream) {
+					err("Failed allocating output stream\n");
+					return false;
+				}
+				if ((ret = avcodec_parameters_copy(m_video_stream->codecpar, m_vcodec_par)) < 0) {
+					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					return false;
+				}
+				m_videoindex = m_video_stream->index;
+				m_video_stream->codecpar->codec_tag = 0;//没有补充信息，Additional information about the codec
+// 				if (m_fmtctx->oformat->flags & AVFMT_GLOBALHEADER)
+// 					m_video_stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
+			}
+			if (!(m_fmtctx->oformat->flags & AVFMT_NOFILE)) {//open output local file if needed.
+				if ((ret = avio_open(&m_fmtctx->pb, m_config->urls.c_str(), AVIO_FLAG_WRITE)) < 0) {
+					err("Could not open output file '%s'", m_config->urls.c_str());
+					return false;
+				}
+			}
+			filter = av_bsf_get_by_name("aac_adtstoasc");
+			int ret = av_bsf_alloc(filter, &bsf_ctx);
+// 			if ((strstr(m_fmtctx->oformat->name, "flv") != NULL) ||
+// 				(strstr(m_fmtctx->oformat->name, "mp4") != NULL) ||
+// 				(strstr(m_fmtctx->oformat->name, "mov") != NULL) ||
+// 				(strstr(m_fmtctx->oformat->name, "3gp") != NULL)){
+// 				if (m_acodec_par->codec_id == AV_CODEC_ID_AAC)
+// 				{
+// 					vbsf_aac_adtstoasc = av_bitstream_filter_init("aac_adtstoasc");
+// 				}
+// 			}
+		
+			/* init muxer, write output file header */
+			if ((ret = avformat_write_header(m_fmtctx, nullptr)) < 0) {
+				err("Error occurred when opening output file\n");
 				return false;
 			}
-			if ((ret = avformat_find_stream_info(m_fmtctx, nullptr)) < 0) {
-				err("Purse urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
-				return false;
-			}
-			for (uint32_t i = 0; i < m_fmtctx->nb_streams; i++) {
-				int32_t codec_type = (int32_t)m_fmtctx->streams[i]->codecpar->codec_type;
-				if (codec_type == AVMEDIA_TYPE_VIDEO)
-					m_av_fps = av_guess_frame_rate(m_fmtctx, m_fmtctx->streams[i], nullptr);
-				m_config->mdmx_pars.strm_info.push_back(std::tuple<int32_t, void*>(codec_type, m_fmtctx->streams[i]));
-			}
-			m_config->mdmx_pars.duts_time = (double)m_fmtctx->duration / AV_TIME_BASE;
 			av_dump_format(m_fmtctx, 0, m_config->urls.c_str(), !is_demuxer);
 		}
 	}
@@ -290,9 +323,6 @@ MediaEnmuxer::opendMudemuxer(bool is_demuxer)
 bool
 MediaEnmuxer::resetMudemuxer(bool is_demuxer)
 {
-	if (is_demuxer) {
-		closeMudemuxer(is_demuxer);
-		return opendMudemuxer(is_demuxer);
-	}
-	return false;
+	closeMudemuxer(is_demuxer);
+	return opendMudemuxer(is_demuxer);
 }

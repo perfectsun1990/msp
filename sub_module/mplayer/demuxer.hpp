@@ -12,7 +12,7 @@ typedef struct MdmxConfig
 {
 	std::string								urls{ "" };
 	bool									pauseflag{ false };
-	int64_t									seek_time{ 0 };	//ms.
+	int64_t									seek_time{ 0 };	//us.
 	int32_t									seek_flag{ 1 };
 	int32_t									rdtimeout{ 0 };	//0-block,other/s.
 	DemuxerPars								mdmx_pars;		//read only cfgs.
@@ -89,5 +89,6 @@ private:
 	std::thread 						m_worker;
 
 	AVRational							m_av_fps{ 0,1 };
+	AVInputFormat*						m_format{ nullptr };
 	AVFormatContext*					m_fmtctx{ nullptr };
 };

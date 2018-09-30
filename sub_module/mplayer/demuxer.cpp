@@ -104,7 +104,8 @@ MediaDemuxer::start(void)
 	m_signal_quit = false;
 	m_worker = std::thread([&](void)
 	{
-		for (int64_t loop=0; !m_signal_quit; ++loop, m_last_loop =av_gettime())
+		for (int64_t loop=0, audio_pkt_nums=0, video_pkt_nums =0;
+			!m_signal_quit; ++loop, m_last_loop =av_gettime())
 		{
 			// Send pause packets to observer.
 			if (m_config->pauseflag) {
@@ -128,7 +129,6 @@ MediaDemuxer::start(void)
 						sleepMs(STANDARDTK);//3s.
 					continue;
 				}
-				SET_PROPERTY(av_pkt->prop, P_BEGP);
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
 			}
@@ -157,16 +157,22 @@ MediaDemuxer::start(void)
 				continue;
 			}
 			if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {// update audio cache and status.
+// 				if (0 == audio_pkt_nums++)
+// 					SET_PROPERTY(av_pkt->prop, P_BEGP);
 				if (!m_seek_apkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_apkt = true;
+					msg("audio seek pkt=%lf\n", av_pkt->upts);
 				}
 				m_acache->upts = av_pkt->upts;
 			}
 			if (av_pkt->type == AVMEDIA_TYPE_VIDEO) {// update video cache and status.
+// 				if (0 == video_pkt_nums++)
+// 					SET_PROPERTY(av_pkt->prop, P_BEGP);
 				if (!m_seek_vpkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_vpkt = true;
+					msg("vdieo seek pkt=%lf\n", av_pkt->upts);
 				}
 				m_vcache->upts = av_pkt->upts;
 			}
@@ -270,6 +276,7 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 				err("Open  urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
 				return false;
 			}
+			//m_format = m_fmtctx->iformat;
 			if ((ret = avformat_find_stream_info(m_fmtctx, nullptr)) < 0) {
 				err("Purse urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
 				return false;

@@ -3,7 +3,7 @@
 
 #include "pubcore.hpp"
 #include "demuxer.hpp"
-//#include "enmuxer.hpp"
+#include "enmuxer.hpp"
 #include "decoder.hpp"
 #include "encoder.hpp"
 #include "synchro.hpp"
@@ -56,7 +56,7 @@ struct MplyerCfg
 class Mplayer :
 	public std::enable_shared_from_this<Mplayer>,
 	public IDemuxerObserver,
-	//public IEnmuxerObserver,
+	public IEnmuxerObserver,
 	public IDecoderObserver,
 	public IEncoderObserver,
 	public ISynchroObserver,
@@ -87,11 +87,12 @@ private:
 	void onDecoderFrame(std::shared_ptr<MRframe> av_frm)	override;
 	// Synchro->Mrender								  
 	void onSynchroFrame(std::shared_ptr<MRframe> av_frm)	override;
-	// Mrender->Encoder.							  
+	// Mrender->Manager.							  
 	void onMRenderFrame(std::shared_ptr<MRframe> av_frm)	override;
 	// Encoder->Enmuxer.
 	void onEncoderPackt(std::shared_ptr<MPacket> av_pkt)	override;
-	//void onDecoderFrame(std::shared_ptr<MRframe> av_frm)	override;
+	// Enmuxer->Manager.
+	void onEnmuxerPackt(std::shared_ptr<MPacket> av_pkt)	override;
 private:
 	std::weak_ptr<IMplayerObserver>			  m_observer;
 	std::atomic<STATUS>						  m_status{ E_INVALID };
@@ -109,6 +110,7 @@ private:
 	//										  
 	std::shared_ptr<ISynchro> 				  m_msynchro{ nullptr };
 	std::shared_ptr<IDemuxer> 				  m_mdemuxer{ nullptr };
+	std::shared_ptr<IEnmuxer> 				  m_menmuxer{ nullptr };
 	std::shared_ptr<IDecoder> 				  m_adecoder{ nullptr };
 	std::shared_ptr<IDecoder> 				  m_vdecoder{ nullptr };
 	std::shared_ptr<IEncoder> 				  m_aencoder{ nullptr };

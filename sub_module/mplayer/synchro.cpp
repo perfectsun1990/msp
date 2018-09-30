@@ -172,7 +172,7 @@ MediaSynchro::start(void)
 			dbg("v delay_until_next_wake=%lf\n", delay_until_next_wake);
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
-		war("video sync thread....exit....\n");
+		war("Video sync thread....exit(m_signalVquit=%d)....\n", m_signalVquit);
 	});
 
 	m_asychro_worker = std::thread([&]()
@@ -241,7 +241,7 @@ MediaSynchro::start(void)
 			dbg("a delay_until_next_wake=%lf\n", delay_until_next_wake);
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
-		war("audio sync thread....exit....\n");
+		war("Audio sync thread....exit(m_signalAquit=%d)....\n", m_signalAquit);
 	});
 	SET_STATUS(m_status, E_STARTED);
 }

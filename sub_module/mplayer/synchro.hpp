@@ -14,7 +14,7 @@ typedef enum SyncType {
 typedef struct MSynConfig
 {
 	bool									pauseflag{ false };
-	SyncType								sync_type{ SYNC_AUDIO_MASTER };
+	SyncType								sync_type{ SYNC_VIDEO_MASTER };
 }MSynConfig;
 
 class ISynchroObserver
