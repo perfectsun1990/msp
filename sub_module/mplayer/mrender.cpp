@@ -260,6 +260,7 @@ VideoMrender::start()
 			}
 			SDL_RenderPresent(m_render);
 			m_vcache->upts = av_frm->upts;
+			av_frm->ssid = m_ssidNo;
 			if (!m_observer.expired())
 				m_observer.lock()->onMRenderFrame(av_frm);
 			// 6.deque &update execute status.
@@ -288,7 +289,7 @@ VideoMrender::pushFrame(std::shared_ptr<MRframe> av_frm)
 	if (AV_PIX_FMT_YUV420P != av_frm->pfrm->format)
 	{// Note: Only rescale for unsupported foramts, convert to I420.
 		AVFrame* pfrm = video_frame_alloc(AV_PIX_FMT_YUV420P, av_frm->pfrm->width, av_frm->pfrm->height);
-		if (!video_rescale(&m_swsctx, pfrm, av_frm->pfrm)) {
+		if (!rescale_frame(&m_swsctx, pfrm, av_frm->pfrm)) {
 			err("video: pfrm=%p rescale failed...\n", pfrm);
 			video_frame_freep(&pfrm);
 			return;
@@ -646,6 +647,7 @@ AudioMrender::start()
 					continue;
 				}	
 				m_acache->upts = av_frm->upts;
+				av_frm->ssid = m_ssidNo;
 				if (!m_observer.expired())
 					m_observer.lock()->onMRenderFrame(av_frm);
 				m_render_Q.popd(av_frm);
@@ -676,7 +678,7 @@ AudioMrender::pushFrame(std::shared_ptr<MRframe> av_frm)
 	{// Note: Only resmple for unsupported foramts,convert to fltp.
 		AVFrame* pfrm = audio_frame_alloc(AV_SAMPLE_FMT_FLTP,
 			av_frm->pfrm->channel_layout, av_frm->pfrm->sample_rate, av_frm->pfrm->nb_samples);
-		if (!audio_resmple(&m_swrctx, pfrm, av_frm->pfrm)) {
+		if (!resmple_frame(&m_swrctx, pfrm, av_frm->pfrm)) {
 			err("Audio: pfrm=%p resmple failed...\n", pfrm);
 			audio_frame_freep(&pfrm);
 			return;

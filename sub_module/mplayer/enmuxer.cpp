@@ -5,11 +5,11 @@
 static int32_t g_enmuxer_ssidNo = 0;
 
 std::shared_ptr<IEnmuxer> IEnmuxer::create(const char * output,
-	std::shared_ptr<IEnmuxerObserver> observer) {
-	return std::make_shared<MediaEnmuxer>(output, observer);
+	std::shared_ptr<IEnmuxerObserver> observer, int32_t av_type) {
+	return std::make_shared<MediaEnmuxer>(output, observer, av_type);
 }
 
-MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver> observer)
+MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver> observer, int32_t av_type)
 	: m_observer(observer)
 {
 	SET_STATUS(m_status, E_INVALID);
@@ -19,7 +19,7 @@ MediaEnmuxer::MediaEnmuxer(const char * output, std::shared_ptr<IEnmuxerObserver
 	m_config = std::make_shared<MemxConfig>();
 	m_config->urls = output;
 	m_config->wrtimeout = 10;
-
+	m_config->muxertype = av_type;
 	m_ssidNo = g_enmuxer_ssidNo++;
 	m_acache = std::make_shared<MPacket>();
 	m_acache->ssid = m_ssidNo;
@@ -74,6 +74,12 @@ MediaEnmuxer::status(void)
 	return m_status;
 }
 
+int32_t MediaEnmuxer::Q_size(int32_t type)
+{
+	return ((type == AVMEDIA_TYPE_AUDIO) ?
+		m_aenmuxer_Q.size() : m_venmuxer_Q.size());
+}
+
 double
 MediaEnmuxer::durats(void)
 {
@@ -105,42 +111,54 @@ MediaEnmuxer::start(void)
 			// 1.pause to write  av packets.
 			if (m_config->pauseflag) {
 				SET_STATUS(m_status, E_PAUSING);
-				if (!m_observer.expired())
+				if (!m_observer.expired()) {
 					m_observer.lock()->onEnmuxerPackt(m_acache);
+					m_observer.lock()->onEnmuxerPackt(m_vcache);
+				}
 				sleepMs(STANDARDTK);
 				continue;
 			}
 			// 2.receive and mux av packets.
-			if (!m_aenmuxer_Q.try_peek(a_pkt) || !m_venmuxer_Q.try_peek(v_pkt)) {
-				sleepMs(STANDARDTK);
-				continue;
-			}
-			if (nullptr == a_pkt && nullptr != v_pkt)
-				p_pkt = v_pkt;
-			if (nullptr != a_pkt && nullptr == v_pkt)
-				p_pkt = a_pkt;
-			if (nullptr != a_pkt && nullptr != v_pkt)
-				p_pkt = (a_pkt->upts < v_pkt->upts) ? a_pkt : v_pkt;
-
-			// 3.check and reset av enmuxer.
-			if (AVMEDIA_TYPE_AUDIO == p_pkt->type && ( m_acodec_par->format	!= p_pkt->pars->format
-				|| m_acodec_par->sample_rate != p_pkt->pars->sample_rate
-				|| m_acodec_par->channels	 != p_pkt->pars->channels)) {
-				if ((ret = avcodec_parameters_copy(m_acodec_par, p_pkt->pars)) < 0)
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
-				m_atime_base  = p_pkt->sttb;
-				m_signal_rset = true;
-			}
-			if (AVMEDIA_TYPE_VIDEO == p_pkt->type && ( m_vcodec_par->format != p_pkt->pars->format
-				|| m_vcodec_par->width  != p_pkt->pars->width
-				|| m_vcodec_par->height != p_pkt->pars->height)) {
-				if (!(AV_PKT_FLAG_KEY & p_pkt->ppkt->flags)) {
-					m_venmuxer_Q.popd(p_pkt);
+			switch (m_config->muxertype) {
+			case AVMEDIA_TYPE_AUDIO:
+				if (!m_aenmuxer_Q.try_peek(p_pkt)) {
+					sleepMs(STANDARDTK);
 					continue;
 				}
-				if ((ret = avcodec_parameters_copy(m_vcodec_par, p_pkt->pars)) < 0)
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
-				m_vtime_base  = p_pkt->sttb;
+				break;
+			case AVMEDIA_TYPE_VIDEO:
+				if (!m_venmuxer_Q.try_peek(p_pkt)) {
+					sleepMs(STANDARDTK);
+					continue;
+				}
+				break;
+			default:
+				if (!m_aenmuxer_Q.try_peek(a_pkt) || !m_venmuxer_Q.try_peek(v_pkt)) {
+					sleepMs(STANDARDTK);
+					continue;
+				}
+				p_pkt = (a_pkt->upts < v_pkt->upts) ? a_pkt : v_pkt;
+				break;
+			}
+			// 3.check and reset av enmuxer.
+			if (a_pkt && ( m_acodec_par->format	!= a_pkt->pars->format
+				|| m_acodec_par->sample_rate != a_pkt->pars->sample_rate
+				|| m_acodec_par->channels	 != a_pkt->pars->channels)) {
+				if ((ret = avcodec_parameters_copy(m_acodec_par, a_pkt->pars)) < 0)
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
+				m_atime_base  = a_pkt->sttb;
+				m_signal_rset = true;
+			}
+			if (v_pkt && ( m_vcodec_par->format != v_pkt->pars->format
+				|| m_vcodec_par->width  != v_pkt->pars->width
+				|| m_vcodec_par->height != v_pkt->pars->height)) {
+				if (!(AV_PKT_FLAG_KEY & v_pkt->ppkt->flags)) {
+					m_venmuxer_Q.popd(v_pkt);
+					continue;
+				}
+				if ((ret = avcodec_parameters_copy(m_vcodec_par, v_pkt->pars)) < 0)
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
+				m_vtime_base  = v_pkt->sttb;
 				m_signal_rset = true;
 			}
 			if (m_signal_rset) {
@@ -150,30 +168,31 @@ MediaEnmuxer::start(void)
 						sleepMs(STANDARDTK);//3s.
 					continue;
 				}
-				m_signal_rset = false;			
+				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
-				war("Reset media Enmuxer!,has stream[A=%d,V=%d]\n", (bool)m_audio_stream, (bool)m_video_stream);
+				war("Reset media Enmuxer!,has stream[A=%d,V=%d]\n", !!(int32_t)m_audio_stream, !!(int32_t)m_video_stream);
 			}
 			// 5.write audio or video packet.
-// 			if ((v_pkt->upts >= last_apktupts) && (v_pkt->upts >= last_vpktupts)
-// 				|| (a_pkt->upts >= last_apktupts) && (a_pkt->upts >= last_vpktupts))
-			{
-				AVStream* p_stream = (AVMEDIA_TYPE_AUDIO == p_pkt->type) ? m_audio_stream : m_video_stream;
-				av_packet_rescale_ts(p_pkt->ppkt, p_pkt->sttb, p_stream->time_base);
-				war("p_pkt->ppkt.pts=%lf [%d,%d]\n", p_pkt->upts, p_pkt->sttb.den, p_stream->time_base.den);
-				p_pkt->ppkt->stream_index = p_stream->index;
-				if ((ret = av_interleaved_write_frame(m_fmtctx, p_pkt->ppkt)) < 0) {
-					err("!!av_interleaved_write_frame failed! ret=%s\n", averr2str(ret));
-					sleepMs(STANDARDTK);
-					continue;
-				}
-				if (!m_observer.expired())
-					m_observer.lock()->onEnmuxerPackt(p_pkt);
-				// 6.deque &update execute status.
-				if (AVMEDIA_TYPE_AUDIO == p_pkt->type)
-					m_aenmuxer_Q.popd(p_pkt);
-				if (AVMEDIA_TYPE_VIDEO == p_pkt->type)
-					m_venmuxer_Q.popd(p_pkt);
+			AVStream* p_stream = (AVMEDIA_TYPE_AUDIO == p_pkt->type) ? m_audio_stream : m_video_stream;
+			av_packet_rescale_ts(p_pkt->ppkt, p_pkt->sttb, p_stream->time_base);
+			dbg("p_pkt->ppkt.pts=%lf [%d,%d]\n", p_pkt->upts, p_pkt->sttb.den, p_stream->time_base.den);
+			p_pkt->ppkt->stream_index = p_stream->index;
+			p_pkt->ssid = m_ssidNo;
+			if ((ret = av_interleaved_write_frame(m_fmtctx, p_pkt->ppkt)) < 0) {
+				err("!!av_interleaved_write_frame failed! ret=%s\n", err2str(ret));
+				sleepMs(STANDARDTK);
+				continue;
+			}			
+			if (!m_observer.expired())
+				m_observer.lock()->onEnmuxerPackt(p_pkt);
+			// 6.deque &update execute status.
+			if (AVMEDIA_TYPE_AUDIO == p_pkt->type) {
+				m_aenmuxer_Q.popd(p_pkt);
+				m_acache->upts = p_pkt->upts;
+			}
+			if (AVMEDIA_TYPE_VIDEO == p_pkt->type) {
+				m_venmuxer_Q.popd(p_pkt);
+				m_vcache->upts = p_pkt->upts;
 			}
 			SET_STATUS(m_status, ((m_status == E_STOPING) ? E_STOPING : E_RUNNING));
 		}
@@ -220,9 +239,11 @@ MediaEnmuxer::closeMudemuxer(bool is_demuxer)
 {
 	if (!is_demuxer) {
 		if (m_fmtctx) {
-			av_write_trailer(m_fmtctx);
-			if (!(m_fmtctx->flags & AVFMT_NOFILE))
-				avio_closep(&m_fmtctx->pb);
+			if (m_fmtctx->pb) {
+				av_write_trailer(m_fmtctx);
+				if (!(m_fmtctx->flags & AVFMT_NOFILE))
+					avio_closep(&m_fmtctx->pb);
+			}			
 			avformat_free_context(m_fmtctx);
 			m_fmtctx = nullptr;
 			av_bsf_free(&bsf_ctx);
@@ -266,7 +287,7 @@ MediaEnmuxer::opendMudemuxer(bool is_demuxer)
 					return false;
 				}
 				if ((ret = avcodec_parameters_copy(m_audio_stream->codecpar, m_acodec_par)) < 0) {
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					return false;
 				}
 				m_audioindex = m_audio_stream->index;
@@ -283,7 +304,7 @@ MediaEnmuxer::opendMudemuxer(bool is_demuxer)
 					return false;
 				}
 				if ((ret = avcodec_parameters_copy(m_video_stream->codecpar, m_vcodec_par)) < 0) {
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					return false;
 				}
 				m_videoindex = m_video_stream->index;

@@ -166,7 +166,7 @@ AudioEncoder::start(void)
 			if ((ret = avcodec_send_frame(m_codec_ctx, av_frm->pfrm)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
-					err("avcodec_send_frame failed! ret=%s\n", averr2str(ret));
+					err("avcodec_send_frame failed! ret=%s\n", err2str(ret));
 					m_encoder_Q.popd(av_frm);
 					m_signal_rset = true;
 				}
@@ -178,7 +178,7 @@ AudioEncoder::start(void)
 				std::shared_ptr<MPacket> av_pkt = std::make_shared<MPacket>();
 				if ((ret = avcodec_receive_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						err("avcodec_receive_packet failed! ret=%s\n", averr2str(ret));
+						err("avcodec_receive_packet failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				// scale AVPacket timebase. <codec->stream: eg.1/44100->1/44100>
@@ -267,17 +267,17 @@ AudioEncoder::opendCodecer(bool is_decoder)
 			if (hwaccel) {
 				msg("using hwaccel->name=%s\n", hwaccel->name);
 				if (!(m_codec = avcodec_find_encoder_by_name(hwaccel->name)))
-					err("Find encoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+					err("Find encoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_encoder(m_codec_par->codec_id))) {
-				err("Find encoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+				err("Find encoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 				return false;
 			}
 		}
 		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_alloc_context3 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if (AVMEDIA_TYPE_AUDIO == m_codec_par->codec_type) {
@@ -300,7 +300,7 @@ AudioEncoder::opendCodecer(bool is_decoder)
 		// Note: if you need sps/pps per frame,forbiden it.
 		//m_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_open2 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 	}
@@ -409,7 +409,7 @@ VideoEncoder::start(void)
 				|| m_codec_par->height != av_frm->pars->height) {
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_frm->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				m_signal_rset = true;
@@ -442,7 +442,7 @@ VideoEncoder::start(void)
 			if ((ret = avcodec_send_frame(m_codec_ctx, av_frm->pfrm)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
-					err("avcodec_send_frame failed! ret=%s\n", averr2str(ret));
+					err("avcodec_send_frame failed! ret=%s\n", err2str(ret));
 					m_encoder_Q.popd(av_frm);
 					m_signal_rset = true;
 				}
@@ -455,7 +455,7 @@ VideoEncoder::start(void)
 				std::shared_ptr<MPacket> av_pkt = std::make_shared<MPacket>();
 				if ((ret = avcodec_receive_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						err("Encoding failed! ret=%s\n", averr2str(ret));
+						err("Encoding failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				// scale AVPacket timebase. <codec->stream: eg.1/25->1/90000|1/1000>
@@ -469,7 +469,7 @@ VideoEncoder::start(void)
 				av_pkt->ufps = (av_pkt->type == AVMEDIA_TYPE_VIDEO) ? m_codec_ctx->framerate : av_pkt->ufps;
 				if ((ret = avcodec_parameters_copy(av_pkt->pars, av_frm->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				m_vcache->upts = av_pkt->upts;
@@ -543,17 +543,17 @@ VideoEncoder::opendCodecer(bool is_decoder)
 			if (hwaccel) {
 				msg("using hwaccel->name=%s\n", hwaccel->name);
 				if (!(m_codec = avcodec_find_encoder_by_name(hwaccel->name)))
-					err("Find encoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+					err("Find encoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_encoder(m_codec_par->codec_id))) {
-				err("Find encoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+				err("Find encoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 				return false;
 			}
 		}
 		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_alloc_context3 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if (AVMEDIA_TYPE_VIDEO == m_codec_par->codec_type) {
@@ -566,25 +566,31 @@ VideoEncoder::opendCodecer(bool is_decoder)
 			m_codec_ctx->width			= m_codec_par->width;
 			m_codec_ctx->height			= m_codec_par->height;
 			m_codec_ctx->profile		= m_codec_par->profile;
-// 			m_codec_ctx->gop_size		= m_codec_ctx->framerate.num;
-// 			m_codec_ctx->max_b_frames	= 0;
-// 			m_codec_ctx->refs			= 1;
 			m_codec_ctx->level			= m_codec_par->level;
+			m_codec_ctx->qmin			= 10;
+			m_codec_ctx->qmax			= 30;//[51]more bigger more bad quality.
+			m_codec_ctx->qcompress		= 0.6f;//quality of compress.
+			m_codec_ctx->gop_size		= 12;//or 15.IPBBBPBBBPBBBI.
+			m_codec_ctx->max_b_frames	= 0; //realtime set to 0.
+ 			m_codec_ctx->refs			= 3; //more bigger more slow.
 			/* Third parameter can be used to pass settings to encoder */
 			if (m_codec_ctx->codec_id == AV_CODEC_ID_H264) {
-				av_dict_set(&opts, "preset",  "superfast", 0);
-				av_dict_set(&opts, "tune",  "zerolatency", 0);
+				av_dict_set(&opts, "preset",   "superfast", 0);
+				av_dict_set(&opts, "tune",	 "zerolatency", 0);
+				//av_dict_set(&opts, "profile",		"main", 0);
+				//av_opt_set(m_codec_ctx->priv_data, "crf", "51", AV_OPT_SEARCH_CHILDREN);
 			}
 			if (m_codec_ctx->codec_id == AV_CODEC_ID_H265) {
 				av_dict_set(&opts, "x265-params", "qp=20", 0);
+				av_dict_set(&opts, "preset",  "ultrafast", 0);
 				av_dict_set(&opts, "tune", "zero-latency", 0);
-				av_dict_set(&opts, "preset", "ultrafast", 0);
+				//av_dict_set(&opts, "profile", "main", 0);
 			}
 		}
 		// Note: if you need sps/pps per frame,forbiden it.
 		//m_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_open2 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 	}

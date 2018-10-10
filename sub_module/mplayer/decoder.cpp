@@ -174,7 +174,7 @@ void AudioDecoder::start(void)
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
-					err("avcodec_send_packet failed! ret=%s\n", averr2str(ret));
+					err("avcodec_send_packet failed! ret=%s\n", err2str(ret));
 					m_decoder_Q.popd(av_pkt);
 					m_signal_rset = true;
 				}
@@ -186,7 +186,7 @@ void AudioDecoder::start(void)
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0) {
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						err("Decoding failed!ret=%s\n", averr2str(ret));
+						err("Decoding failed!ret=%s\n", err2str(ret));
 					break;
 				}				
 				av_frm->ssid = m_ssidNo;
@@ -213,7 +213,7 @@ void AudioDecoder::start(void)
 					}
 				}
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				m_acache->upts = av_frm->upts;
@@ -284,21 +284,21 @@ bool AudioDecoder::opendCodecer(bool is_decoder)
 			if (hwaccel) {
 				msg("using hwaccel->name=%s\n", hwaccel->name);
 				if (!(m_codec = avcodec_find_decoder_by_name(hwaccel->name)))
-					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
-				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 				return false;
 			}
 		}
 		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_alloc_context3 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-			err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
+			err("avcodec_parameters_to_context failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
@@ -315,7 +315,7 @@ bool AudioDecoder::opendCodecer(bool is_decoder)
 		}
 		// Open decoder base on m_codec & m_codec_ctx.
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_open2 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 	}
@@ -423,7 +423,7 @@ void VideoDecoder::start(void)
 				|| m_codec_par->height != av_pkt->pars->height)	{
 				if ((ret = avcodec_parameters_copy(m_codec_par, av_pkt->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				m_signal_rset = true;
@@ -465,7 +465,7 @@ void VideoDecoder::start(void)
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) {
-					err("avcodec_send_packet failed! ret=%s\n", averr2str(ret));
+					err("avcodec_send_packet failed! ret=%s\n", err2str(ret));
 					m_decoder_Q.popd(av_pkt);
 					m_signal_rset = true;
 				}
@@ -477,7 +477,7 @@ void VideoDecoder::start(void)
 				std::shared_ptr<MRframe> av_frm = std::make_shared<MRframe>();
 				if ((ret = avcodec_receive_frame(m_codec_ctx, av_frm->pfrm))< 0){
 					if (ret != -(EAGAIN) && ret != AVERROR_EOF)
-						err("Decoding failed! ret=%s\n", averr2str(ret));
+						err("Decoding failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				av_frm->ssid = m_ssidNo;
@@ -505,7 +505,7 @@ void VideoDecoder::start(void)
 				}
 				if ((ret = avcodec_parameters_copy(av_frm->pars, av_pkt->pars)) < 0) {
 					SET_STATUS(m_status, E_RUNNERR);
-					err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+					err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 					break;
 				}
 				m_vcache->upts = av_frm->upts;
@@ -582,28 +582,28 @@ VideoDecoder::opendCodecer(bool is_decoder)
 			if (hwaccel) {
 				msg("using hwaccel->name=%s\n", hwaccel->name);
 				if (!(m_codec = avcodec_find_decoder_by_name(hwaccel->name)))
-					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+					err("Find decoder[H] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 			}
 		}
 		if (nullptr == m_codec) {
 			if (!(m_codec = avcodec_find_decoder(m_codec_par->codec_id))) {
-				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, averr2str(ret));
+				err("Find decoder[S] for [%d] failed! Err:%s\n", m_codec_par->codec_id, err2str(ret));
 				return false;
 			}
 		}
 		if (!(m_codec_ctx = avcodec_alloc_context3(m_codec))) {
-			err("avcodec_alloc_context3 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_alloc_context3 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if ((ret = avcodec_parameters_to_context(m_codec_ctx, m_codec_par)) < 0) {
-			err("avcodec_parameters_to_context failed! Err:%s\n", averr2str(ret));
+			err("avcodec_parameters_to_context failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 		if (m_codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
 			m_codec_ctx->framerate = m_framerate;
 		// Open decoder base on m_codec & m_codec_ctx.
 		if ((ret = avcodec_open2(m_codec_ctx, m_codec, &opts)) < 0) {
-			err("avcodec_open2 failed! Err:%s\n", averr2str(ret));
+			err("avcodec_open2 failed! Err:%s\n", err2str(ret));
 			return false;
 		}
 	}

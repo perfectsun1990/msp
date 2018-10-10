@@ -68,7 +68,7 @@ Mplayer::mInit(void)
 	{
 		m_vdecoder1 = IDecoderFactory::createVideoDecoder(shared_from_this());
 		m_adecoder1 = IDecoderFactory::createAudioDecoder(shared_from_this());
-		m_menmuxer = IEnmuxer::create("E:\\test.3gp",shared_from_this());
+		m_menmuxer = IEnmuxer::create("E:\\test.flv",shared_from_this());
 
 		m_mdemuxer = IDemuxer::create(m_config->inputpath.c_str(), shared_from_this());
 		m_msynchro = ISynchro::create(SYNC_AUDIO_MASTER, shared_from_this());
@@ -175,84 +175,62 @@ Mplayer::onDemuxerPackt(std::shared_ptr<MPacket> av_pkt)
 {
 	m_mdemuxer->pause((m_adecoder->Q_size() >= MAX_AUDIO_Q_SIZE)
 				   || (m_vdecoder->Q_size() >= MAX_VIDEO_Q_SIZE));
-#if 0
 	if (av_pkt->type == AVMEDIA_TYPE_AUDIO){
-		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
-			m_adecoder->pushPackt(av_pkt);
+		if (m_mdemuxer->ssidNo() == av_pkt->ssid) {
+			if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
+				m_adecoder->pushPackt(av_pkt);
+		}
 		dbg("audio: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_adecoder->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
 	}
 
 	if (av_pkt->type == AVMEDIA_TYPE_VIDEO){	
-		if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
-			m_vdecoder->pushPackt(av_pkt);
+		if (m_mdemuxer->ssidNo() == av_pkt->ssid) {
+			if (!CHK_PROPERTY(av_pkt->prop, P_PAUS))
+				m_vdecoder->pushPackt(av_pkt);
+		}
 		dbg("video:Q_size()=%d  prop=%lld, type=%d upts=%g s\n", m_vdecoder->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
 	}
-#else
-//	if (av_pkt->type == AVMEDIA_TYPE_VIDEO)
-		m_menmuxer->pushPackt(av_pkt);
-#endif
+	//remuxer.
+	//m_menmuxer->pushPackt(av_pkt->clone());
 }
 
 // Decoder->Synchro
 void 
 Mplayer::onDecoderFrame(std::shared_ptr<MRframe> av_frm)
 {
-#if 0
 	if (av_frm->type == AVMEDIA_TYPE_AUDIO) {
 		if (m_adecoder->ssidNo() == av_frm->ssid) {
 			m_adecoder->pause((m_msynchro->Q_size(AVMEDIA_TYPE_AUDIO) >= MAX_AUDIO_Q_SIZE));
 			m_msynchro->pushFrame(av_frm);
 		}
+		dbg("audio: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_amrender->Q_size(), av_frm->prop, av_frm->type, av_frm->upts);
 	}
 	if (av_frm->type == AVMEDIA_TYPE_VIDEO) {
 		if (m_vdecoder->ssidNo() == av_frm->ssid) {
 			m_vdecoder->pause((m_msynchro->Q_size(AVMEDIA_TYPE_VIDEO) >= MAX_VIDEO_Q_SIZE));
 			m_msynchro->pushFrame(av_frm);
 		}
+		dbg("video: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_vmrender->Q_size(), av_frm->prop, av_frm->type, av_frm->upts);
 	}
-#else// Test encoder.
-	if (av_frm->type == AVMEDIA_TYPE_AUDIO) {
-		if (m_adecoder->ssidNo() == av_frm->ssid) {
-			m_adecoder->pause((m_aencoder->Q_size() >= MAX_AUDIO_Q_SIZE));
-			m_aencoder->pushFrame(av_frm);
-		}
-		//other decoder...
-		if (m_adecoder1->ssidNo() == av_frm->ssid) {
-			m_adecoder1->pause((m_msynchro->Q_size(AVMEDIA_TYPE_AUDIO) >= MAX_AUDIO_Q_SIZE));
-			m_msynchro->pushFrame(av_frm);
-		}
-	}
-
-	if (av_frm->type == AVMEDIA_TYPE_VIDEO) {
-		if (m_vdecoder->ssidNo() == av_frm->ssid) {
-			m_vdecoder->pause((m_vencoder->Q_size() >= MAX_AUDIO_Q_SIZE));
-			m_vencoder->pushFrame(av_frm);
-		}
-		//other decoder...
-		if (m_vdecoder1->ssidNo() == av_frm->ssid) {
-			m_vdecoder1->pause((m_msynchro->Q_size(AVMEDIA_TYPE_VIDEO) >= MAX_VIDEO_Q_SIZE));
-			m_msynchro->pushFrame(av_frm);
-		}
-	}
-#endif
 }
 
 // Synchro->Mrender
 void
 Mplayer::onSynchroFrame(std::shared_ptr<MRframe> av_frm)
 {
-	m_msynchro->pause(m_amrender->Q_size() >= 3);
+	m_msynchro->pause((m_amrender->Q_size() >= MAX_AUDIO_Q_SIZE)
+		|| (m_vmrender->Q_size() >= MAX_VIDEO_Q_SIZE));
 
 	if (av_frm->type == AVMEDIA_TYPE_AUDIO) {
-		if (!CHK_PROPERTY(av_frm->prop, P_PAUS)) {
+		if (m_msynchro->ssidNo() == av_frm->ssid) {
 			m_amrender->pushFrame(av_frm);
 		}
 		dbg("audio: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_amrender->Q_size(), av_frm->prop, av_frm->type, av_frm->upts);
 	}
 	if (av_frm->type == AVMEDIA_TYPE_VIDEO) {
-		if (!CHK_PROPERTY(av_frm->prop, P_PAUS)) {
+		if (m_msynchro->ssidNo() == av_frm->ssid) {
 			m_vmrender->pushFrame(av_frm);
-		}			
+		}
 		dbg("video: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_vmrender->Q_size(), av_frm->prop, av_frm->type, av_frm->upts);
 	}
 }
@@ -262,33 +240,39 @@ void
 Mplayer::onMRenderFrame(std::shared_ptr<MRframe> av_frm)
 {
 	if (av_frm->type == AVMEDIA_TYPE_AUDIO){
+		if (m_amrender->ssidNo() == av_frm->ssid) {
+			//NOTE: for smoth play,we don't pause render.
+			m_aencoder->pushFrame(av_frm);
+		}
 		dbg("-->apts=%g\n", av_frm->upts);
 	}
 	if (av_frm->type == AVMEDIA_TYPE_VIDEO){
+		if (m_vmrender->ssidNo() == av_frm->ssid) {
+			//NOTE: for smoth play,we don't pause render.
+			m_vencoder->pushFrame(av_frm);
+		}
 		dbg("-->vpts=%g\n", av_frm->upts);
 	}
-	if (!m_observer.expired())
-		m_observer.lock()->onCurRenderPts(m_ssidNo, av_frm->type, av_frm->upts);
+	if (!CHK_PROPERTY(av_frm->prop, P_PAUS) && !m_observer.expired())
+			m_observer.lock()->onCurRenderPts(m_ssidNo, av_frm->type, av_frm->upts);
 }
 
 // Encoder->Enmuxer.
 void Mplayer::onEncoderPackt(std::shared_ptr<MPacket> av_pkt)
 {
-#if 0
 	if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {
-		m_aencoder->pause((m_adecoder1->Q_size() >= MAX_AUDIO_Q_SIZE));
-		m_adecoder1->pushPackt(av_pkt);
-		dbg("audio: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_adecoder1->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
+		if (m_aencoder->ssidNo() == av_pkt->ssid) {
+			m_menmuxer->pushPackt(av_pkt);
+		}
+		dbg("audio: :Q_size()=%d prop=%lld, type=%d upts=%g s\n", m_aencoder->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
 	}
+
 	if (av_pkt->type == AVMEDIA_TYPE_VIDEO) {
-		m_vencoder->pause((m_vdecoder1->Q_size() >= MAX_VIDEO_Q_SIZE));
-		m_vdecoder1->pushPackt(av_pkt);	
-		dbg("video:Q_size()=%d  prop=%lld, type=%d upts=%g s\n", m_adecoder1->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
+		if (m_vencoder->ssidNo() == av_pkt->ssid) {
+			m_menmuxer->pushPackt(av_pkt);
+		}
+		dbg("video:Q_size()=%d  prop=%lld, type=%d upts=%g s\n", m_vencoder->Q_size(), av_pkt->prop, av_pkt->type, av_pkt->upts);
 	}
-#else
-	if (av_pkt->type == AVMEDIA_TYPE_AUDIO)
- 		m_menmuxer->pushPackt(av_pkt);
-#endif
 }
 
 // Encoder->Enmuxer.
@@ -327,7 +311,6 @@ int32_t main(int32_t argc, char *argv[])
 	const char* speakr1 = "";
 	const char* speakr2 = "";
 #endif
-
 	std::thread([&]() 
 	{
 #if TEST_WINDOW// 2 window test
@@ -343,7 +326,7 @@ int32_t main(int32_t argc, char *argv[])
 #endif
 		//mp1->start();
 		mp2->start();
-		std::this_thread::sleep_for(std::chrono::seconds(5));
+		std::this_thread::sleep_for(std::chrono::seconds(30));
 		mp2->stopd();
 #if		TEST_SEEK_PAUSE
 		for (int i = 1; ; i++) {

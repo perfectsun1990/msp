@@ -118,21 +118,22 @@ const static log_rank_t	_log_rank =	  LOG_MSG;
 #define out( format, ... )do{ fprintf(stderr, format, ##__VA_ARGS__); }while(0)
 #endif
 
-#define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F )           // 获取x的(n~n+03)位
-#define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF )           // 获取x的(n~n+07)位
-#define BCUT_16(x,n)                ( ( (x) >> (n) ) & 0xFFFF )         // 获取x的(n~n+15)位
-
 #define BSET(x,n)                   ( (x) |=  ( 1 << (n) ) )            // 设置x的第n位为"1"
 #define BCLR(x,n)                   ( (x) &= ~( 1 << (n) ) )            // 清除x的第n位为"0"
 #define BCHK(x,n)                   ( ( (x) >> (n) ) & 1 )              // 检测某位是否是"1"
+
+#define BCUT_04(x,n)                ( ( (x) >> (n) ) & 0x0F    )        // 获取x的(n~n+03)位
+#define BCUT_08(x,n)                ( ( (x) >> (n) ) & 0xFF    )        // 获取x的(n~n+07)位
+#define BCUT_16(x,n)                ( ( (x) >> (n) ) & 0xFFFF  )        // 获取x的(n~n+15)位
+#define BCUT_24(x,n)                ( ( (x) >> (n) ) & 0x3FFFF )        // 获取x的(n~n+23)位
 
 #define BYTE_ORDR                   ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
 #define SWAP_16(x)                  ((x>>08&0xff)|(x<<08&0xff00))       // 大小端字节序转换
 #define SWAP_24(x)                  ((x>>16&0xff)|(x<<16&0xff0000)|x&0xff00)  
 #define SWAP_32(x)                  ((x>>24&0xff)|(x>>8&0xff00)|(x << 8 & 0xff0000) | (x << 24 & 0xff000000))  
 
-#define ELEMENTS(s)					( sizeof(s)/sizeof(s[0]) )
-#define FREESIZE(s)					( sizeof(s)- strlen(s)-1 )
+#define ARRSIZE(s)					( sizeof(s)/sizeof(s[0]) )
+#define IDLSIZE(s)					( sizeof(s)- strlen(s)-1 )
 
 /**
  *@字符串集常用操作
@@ -151,22 +152,8 @@ IsNetStream(const char* url) {
 		|| strstr(url, "mms:") || strstr(url, "http:"));
 }
 
-static inline int
-__mkdir(const char* dirname)
-{
-	int ret = 0;
-#ifdef _WIN32
-	ret = _mkdir(dirname);
-#elif unix
-	ret = mkdir(dirname, 0775);
-#elif __APPLE__
-	ret = mkdir(dirname, 0775);
-#endif
-	return ret;
-}
-
-static inline int
-FiltFile(const char *str, char* buf, int len)
+static inline int32_t
+FiltFile(const char *str, char* buf, int32_t len)
 {
 	char* p_str = (char*)str;
 	int32_t i = 0, str_len = strlen(str);
@@ -181,8 +168,8 @@ FiltFile(const char *str, char* buf, int len)
 	return -1;
 }
 
-static inline int
-FiltDirc(const char *str, char* buf, int len)
+static inline int32_t
+FiltDirs(const char *str, char* buf, int32_t len)
 {
 	char* p_str = (char*)str;
 	int32_t i = 0;
@@ -201,60 +188,17 @@ FiltDirc(const char *str, char* buf, int len)
 	return -1;
 }
 
-static inline int
-MakeDir(char *newdir)
-{
-	char *buffer = NULL;
-	char *p = NULL;
-	int  len = (int)strlen(newdir);
-	if (len <= 0)	return 0;
-	buffer = (char*)malloc(len + 1);
-	if (buffer == NULL){
-		printf("Error allocating memory\n");
-		return -1;
-	}
-	strcpy(buffer, newdir);
-	if (buffer[len - 1] == '/') {
-		buffer[len - 1] = '\0';
-	}
-	if (__mkdir(buffer) == 0){
-		free(buffer);
-		return 1;
-	}
-	p = buffer + 1;
-	while (1) {
-		char hold;
-		while (*p && *p != '\\' && *p != '/')
-			p++;
-		hold = *p;
-		*p = 0;
-		if ((__mkdir(buffer) == -1) && (errno == ENOENT)){
-			printf("couldn't create directory %s\n", buffer);
-			free(buffer);
-			return 0;
-		}
-		if (hold == 0)
-			break;
-		*p++ = hold;
-	}
-	free(buffer);
-	return 1;
-}
-
 // cpp.
 static inline std::vector<std::string>
-StrSplits(std::string str, std::string pattern)
+StrSplit(std::string str, std::string pattern)
 {
 	std::string::size_type pos;
 	std::vector<std::string> result;
 	str += pattern;//扩展字符串以方便操作
 	size_t size = str.size();
-
-	for (size_t i = 0; i < size; i++)
-	{
+	for (size_t i = 0; i < size; i++) {
 		pos = str.find(pattern, i);
-		if (pos < size)
-		{
+		if (pos < size) {
 			std::string s = str.substr(i, pos - i);
 			result.push_back(s);
 			i = pos + pattern.size() - 1;
@@ -264,21 +208,69 @@ StrSplits(std::string str, std::string pattern)
 }
 
 static inline std::string
-StrReplace(std::string strSrc,
-	const std::string &oldStr, const std::string &newStr, int count = -1)
+StrRepls(std::string strSrc,
+	const std::string &oldStr, const std::string &newStr, int32_t count = -1)
 {
 	std::string strRet = strSrc;
 	size_t pos = 0;
-	int l_count = 0;
-	if (-1 == count) // replace all
+	int32_t l_count = 0;
+	if (-1 == count) { // replace all
 		count = strRet.size();
-	while ((pos = strRet.find(oldStr, pos)) != std::string::npos)
-	{
+	}	
+	while ((pos = strRet.find(oldStr, pos)) != std::string::npos){
 		strRet.replace(pos, oldStr.size(), newStr);
 		if (++l_count >= count) break;
 		pos += newStr.size();
 	}
 	return strRet;
+}
+
+static inline int32_t
+RemvDirs(char *curdir) {
+	return rmdir(curdir);
+}
+
+static inline int32_t
+MakeDirs(char *newdir)
+{
+#ifdef _WIN32
+#define __mkdir(x) mkdir(x)
+#else
+#define __mkdir(x) mkdir(x,0775);
+#endif
+	char *buffer = NULL, *p = NULL;
+	int32_t  len = (int32_t)strlen(newdir);
+	if (len <= 0)	return -1;
+	buffer = (char*)malloc(len + 1);
+	if (buffer == NULL) {
+		err("Error allocating memory\n");
+		return -1;
+	}
+	strcpy(buffer, newdir);
+	if (buffer[len - 1] == '/') {
+		buffer[len - 1] = '\0';
+	}
+	if (__mkdir(buffer) == 0) {
+		free(buffer);
+		return 0;//mkdir once success!
+	}
+	p = buffer + 1;
+	while (1) {	 //mkdir by recursive!
+		while (*p && *p != '\\' && *p != '/')
+			p++;
+		char hold = *p;
+		*p = 0;
+		if ((__mkdir(buffer) == -1) && (errno == ENOENT)) {
+			err("couldn't create directory %s\n", buffer);
+			free(buffer);
+			return -1;
+		}
+		if (hold == 0)
+			break;
+		*p++ = hold;
+	}
+	free(buffer);
+	return 0;
 }
 
 /***************************3.平台相关通用函数***************************/
@@ -653,8 +645,7 @@ namespace AT
 }
 
 /***************************4.实体项目公共资源***************************/
-typedef enum STATUS
-{
+typedef enum STATUS{
 	E_INVALID = -1,
 	E_INITRES,
 
@@ -674,8 +665,7 @@ typedef enum STATUS
 #define CHK_RETURN(x) do{ if(x) return; }		while (0)
 #define SET_STATUS(x, y) do{ (x) = (y); }		while (0)
 
-typedef enum PROPTS
-{
+typedef enum PROPTS{
 	P_MINP = -1,
 	P_BEGP, 
 	P_SEEK,
@@ -693,78 +683,98 @@ typedef enum PROPTS
 #define MAX_AUDIO_Q_SIZE						(5)
 #define MAX_VIDEO_Q_SIZE						(MAX_AUDIO_Q_SIZE)
 
+struct MParams{
+	int32_t				ssid{ -1 };//unique mark of the stream.
+	int32_t				type{ -1 };//audio or video media type.
+	int64_t				prop{ -0 };//specif prop, such as seek.
+	AVRational			sttb{ -1 };//stream or  codec timebase.
+	double				upts{ -1 };//user pts in second.<maybe disorder for video>
+	AVRational			ufps{ -1 };//user fps.eg.25.	
+};
+
 //Demuxer->...->Enmuxer.
-struct MPacket
-{
+struct MPacket :
+	public MParams{
 	MPacket() {
-		//std::cout << "MPacket().." << std::endl;
 		pars = avcodec_parameters_alloc();
 		ppkt = av_packet_alloc();
 		assert(nullptr != ppkt && nullptr != pars);
 	}
-	~MPacket() {
-		//std::cout << "~MPacket.." << std::endl;
+	MPacket(MPacket* mpkt) {
+		ssid = mpkt->ssid;
+		type = mpkt->type;
+		prop = mpkt->prop;
+		sttb = mpkt->sttb;
+		upts = mpkt->upts;
+		pars = avcodec_parameters_alloc();
+		avcodec_parameters_copy(pars, mpkt->pars);
+		ppkt = av_packet_clone(mpkt->ppkt);
+		assert(nullptr != ppkt && nullptr != pars);
+	}
+	~MPacket(){
 		avcodec_parameters_free(&pars);
 		av_packet_free(&ppkt);
 	}
-	int32_t				ssid{ -1 };//unique mark of the stream.
-	int32_t				type{ -1 };//audio or video media type.
-	int64_t				prop{  0 };//specif prop, such as seek.
-	AVRational			sttb{  0 };//av_stream->timebase.
-	double				upts{  0 };//user pts in second.<maybe disorder for video>
-	AVRational			ufps{  0 };//user fps.eg.25.	
+	std::shared_ptr<MPacket> clone() {
+		return std::make_shared<MPacket>(this);
+	}
 	AVCodecParameters*	pars{ nullptr };
 	AVPacket* 			ppkt{ nullptr };
 };
 
 //Decoder->...->Encoder|Mrender.
-struct MRframe
-{
+struct MRframe :
+	public MParams{
 	MRframe() {
 		pars = avcodec_parameters_alloc();
 		pfrm = av_frame_alloc();
 		assert(nullptr != pfrm && nullptr != pars);
 	}
-	~MRframe() {
+	MRframe(MRframe* mfrm) {
+		ssid = mfrm->ssid;
+		type = mfrm->type;
+		prop = mfrm->prop;
+		sttb = mfrm->sttb;
+		upts = mfrm->upts;
+		pars = avcodec_parameters_alloc();
+		avcodec_parameters_copy(pars, mfrm->pars);
+		pfrm = av_frame_clone(mfrm->pfrm);
+		assert(nullptr != ppkt && nullptr != pars);
+	}
+	~MRframe(){
 		avcodec_parameters_free(&pars);
 		av_frame_free(&pfrm);
 	}
-	int32_t				ssid{ -1 };//unique mark of the stream.
-	int32_t				type{ -1 };//audio or video media type.
-	int64_t				prop{  0 };//specif prop, such as seek.
-	AVRational			sttb{  0 };//av_codec->timebase.
-	double				upts{  0 };//user pts in second.<must be orderly>
-	AVRational			ufps{  0 };//user fps.eg.25.
+	std::shared_ptr<MRframe> clone() {
+		return std::make_shared<MRframe>(this);
+	}
 	AVCodecParameters*	pars{ nullptr };
 	AVFrame* 			pfrm{ nullptr };
 };
 
 static void
-sleepMs(int64_t delay){
+sleepMs(int64_t delay) {
 	return std::this_thread::sleep_for(std::chrono::milliseconds(delay));
 }
 
 static char*
-averr2str(int num) 
-{
+err2str(int32_t ecode) {
 	static char strerr[512] = { 0 };
 	memset(strerr, 0, sizeof(strerr));
-	return (av_strerror(num, strerr, sizeof(strerr))) ? NULL : strerr;
+	return (av_strerror(ecode, strerr, sizeof(strerr))) ? NULL : strerr;
 }
 
 static void
-audio_frame_freep(AVFrame** frame)
-{
+audio_frame_freep(AVFrame** frame){
 	av_frame_free(frame);
 }
 
 static AVFrame*
 audio_frame_alloc(enum AVSampleFormat smp_fmt,
-	uint64_t channel_layout, int32_t sample_rate, int32_t nb_samples)
-{
+	uint64_t channel_layout, int32_t sample_rate, int32_t nb_samples){
 	int32_t ret = 0;
-	AVFrame *frame = nullptr;
-	if (!(frame = av_frame_alloc())) {
+	AVFrame *frame = av_frame_alloc();
+	if (nullptr == frame){
 		err("av_frame_alloc failed! frame=%p\n", frame);
 		return nullptr;
 	}
@@ -782,14 +792,12 @@ audio_frame_alloc(enum AVSampleFormat smp_fmt,
 }
 
 static void
-video_frame_freep(AVFrame** frame)
-{
+video_frame_freep(AVFrame** frame){
 	av_frame_free(frame);
 }
 
 static AVFrame*
-video_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
-{
+video_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height){
 	AVFrame *frame = nullptr;
 	int32_t ret = 0;
 	if (!(frame = av_frame_alloc())) {
@@ -812,7 +820,7 @@ video_frame_alloc(enum AVPixelFormat pix_fmt, int32_t width, int32_t height)
  *@重采样函数,返回一个指针指向采样后数据，有可能是输入的指针，不好。
  */
 static bool
-video_rescale(SwsContext **pswsctx,AVFrame *dst_frame, AVFrame *src_frame)
+rescale_frame(SwsContext **pswsctx,AVFrame *dst_frame, AVFrame *src_frame)
 {
 	if (!src_frame || !dst_frame || !pswsctx)
 		return false;
@@ -840,7 +848,7 @@ video_rescale(SwsContext **pswsctx,AVFrame *dst_frame, AVFrame *src_frame)
 }
 
 static bool
-audio_resmple(SwrContext **pswrctx, AVFrame *dst_frame, const AVFrame *src_frame )
+resmple_frame(SwrContext **pswrctx, AVFrame *dst_frame, const AVFrame *src_frame )
 {
 	if (!src_frame || !dst_frame || !pswrctx)
 		return false;
@@ -889,17 +897,14 @@ av_pcmalaw_clone2buffer(AVFrame *frame, char* data, int32_t size)
 	int32_t frame_size = frame->channels * frame->nb_samples * bytes_per_sample;
 	char*   frame_data = data, *p_cur_ptr = frame_data;
 
-	if (frame_size > 0 && size >= frame_size)
-	{// dump pcm
+	if (frame_size > 0 && size >= frame_size) {// dump pcm
 	 // 1.For packet sample foramt and 1 channel,we just store pcm data in byte order.
 		if ((1 == frame->channels)
 			|| (frame->format >= AV_SAMPLE_FMT_U8 &&  frame->format <= AV_SAMPLE_FMT_DBL))
 		{//linesize[0] maybe 0 or has padding bits,so calculate the real size by ourself.
 			memcpy(p_cur_ptr, frame->data[0], frame_size);
-		}
-		else {//2.For plane sample foramt, we must store pcm datas interleaved. [LRLRLR...LR].
-			for (int32_t i = 0; i < frame->nb_samples; ++i)
-			{
+		}else {//2.For plane sample foramt, we must store pcm datas interleaved. [LRLRLR...LR].
+			for (int32_t i = 0; i < frame->nb_samples; ++i) {
 				memcpy(p_cur_ptr, frame->data[0] + i*bytes_per_sample, bytes_per_sample);
 				p_cur_ptr += bytes_per_sample;
 				memcpy(p_cur_ptr, frame->data[1] + i*bytes_per_sample, bytes_per_sample);
@@ -922,8 +927,7 @@ av_yuv420p_clone2buffer(AVFrame *frame, char* data, int32_t size)
 	int32_t frame_size = y_size * 3 / 2;
 	char*   frame_data = data, *p_cur_ptr = frame_data;
 
-	if (frame_size > 0 && size >= frame_size)
-	{// dump yuv420
+	if (frame_size > 0 && size >= frame_size) {// dump yuv420
 		for (int32_t i = 0; i < frame->height; ++i)
 			memcpy(p_cur_ptr + frame->width*i, frame->data[0] + frame->linesize[0] * i, frame->width);
 		p_cur_ptr += y_size;
@@ -999,8 +1003,7 @@ debug_write_alaw(AVFrame *frame)
 		fwrite(frame->data[0], 1, frame_size, fp);
 	}
 	else {//2.For plane sample foramt, we must store pcm datas interleaved. [LRLRLR...LR].
-		for (int32_t i = 0; i < frame->nb_samples; ++i)
-		{
+		for (int32_t i = 0; i < frame->nb_samples; ++i) {
 			fwrite(frame->data[0] + i*bytes_per_sample, 1, bytes_per_sample, fp);
 			fwrite(frame->data[1] + i*bytes_per_sample, 1, bytes_per_sample, fp);
 		}

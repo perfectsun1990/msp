@@ -166,6 +166,7 @@ MediaSynchro::start(void)
 			//同步的情况下，上面的分支进入的可能性更大。。
 			if (delay_until_next_wake > pts_diff)
 				delay_until_next_wake = pts_diff;
+			av_frm->ssid = m_ssidNo;
 			if (!m_observer.expired())
 				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;
@@ -234,7 +235,7 @@ MediaSynchro::start(void)
 			}
 			if (delay_until_next_wake > pts_diff)
 				delay_until_next_wake = pts_diff;
-
+			av_frm->ssid = m_ssidNo;
 			if (!m_observer.expired())
 				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;

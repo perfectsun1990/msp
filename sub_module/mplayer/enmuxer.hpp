@@ -12,7 +12,8 @@ typedef struct MemxConfig
 {
 	std::string								urls{ "" };
 	bool									pauseflag{ false };
-	int32_t									wrtimeout{ 0 };	//0-block,other/s.
+	int32_t									wrtimeout{  0 };	//0-block,other/s.
+	int32_t									muxertype{ -1 };
 	EnmuxerPars								mdmx_pars;		//read only cfgs.
 }MemxConfig;
 
@@ -30,12 +31,13 @@ class IEnmuxer
 {
 public:
 	static std::shared_ptr<IEnmuxer> create(const char* output,
-		std::shared_ptr<IEnmuxerObserver> observer = nullptr);
+		std::shared_ptr<IEnmuxerObserver> observer = nullptr, int32_t av_type = -1);
 	/* configs functions. */
 	virtual int32_t	ssidNo(void) = 0;
 	virtual void	update(void* config) = 0;
 	virtual void	config(void* config) = 0;
 	virtual STATUS	status(void) = 0;
+	virtual int32_t	Q_size(int32_t type) = 0;
 	virtual double  durats(void) = 0;
 	virtual void	pushPackt(std::shared_ptr<MPacket> av_pkt) = 0;
 	/* control functions. */
@@ -50,13 +52,14 @@ class MediaEnmuxer : public IEnmuxer
 {
 public:
 	MediaEnmuxer(const char* output,
-		std::shared_ptr<IEnmuxerObserver> observer = nullptr);
+		std::shared_ptr<IEnmuxerObserver> observer = nullptr, int32_t av_type = -1);
 	~MediaEnmuxer();
 	/* configs functions. */
 	int32_t	ssidNo(void)							 override;
 	void	update(void* config)					 override;
 	void	config(void* config)					 override;
 	STATUS	status(void)							 override;
+	int32_t	Q_size(int32_t type)				 override;
 	double  durats(void)							 override;
 	void	pushPackt(std::shared_ptr<MPacket> av_pkt)	override;
 	/* control functions. */

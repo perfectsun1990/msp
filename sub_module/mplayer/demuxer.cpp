@@ -131,6 +131,7 @@ MediaDemuxer::start(void)
 				}
 				m_signal_rset = false;
 				SET_STATUS(m_status, E_STARTED);
+				war("Reset media Demuxer!\n");
 			}
 			// Seek and read frame from source.
 			if (nullptr == av_pkt->ppkt || !handleSeekAction()) {
@@ -141,7 +142,7 @@ MediaDemuxer::start(void)
 			if ((ret = av_read_frame(m_fmtctx, av_pkt->ppkt)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
 				if (ret != AVERROR_EOF) 
-					err("av_read_frame failed! ret=%s\n", averr2str(ret));
+					err("av_read_frame failed! ret=%s\n", err2str(ret));
 				m_signal_rset = IsNetStream(m_fmtctx->filename);
 				sleepMs(STANDARDTK);
 				continue;
@@ -153,7 +154,7 @@ MediaDemuxer::start(void)
 			av_pkt->ufps = (av_pkt->type == AVMEDIA_TYPE_VIDEO) ? m_av_fps : av_pkt->ufps;
 			if ((ret = avcodec_parameters_copy(av_pkt->pars, m_fmtctx->streams[av_pkt->ppkt->stream_index]->codecpar)) < 0) {
 				SET_STATUS(m_status, E_RUNNERR);
-				err("avcodec_parameters_copy failed! ret=%s\n", averr2str(ret));
+				err("avcodec_parameters_copy failed! ret=%s\n", err2str(ret));
 				continue;
 			}
 			if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {// update audio cache and status.
@@ -273,12 +274,12 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 				return 0;
 			};
 			if ((ret = avformat_open_input(&m_fmtctx, m_config->urls.c_str(), NULL, &opts)) < 0) {
-				err("Open  urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
+				err("Open  urls=%s failed! Err:%s\n", m_config->urls.c_str(), err2str(ret));
 				return false;
 			}
 			//m_format = m_fmtctx->iformat;
 			if ((ret = avformat_find_stream_info(m_fmtctx, nullptr)) < 0) {
-				err("Purse urls=%s failed! Err:%s\n", m_config->urls.c_str(), averr2str(ret));
+				err("Purse urls=%s failed! Err:%s\n", m_config->urls.c_str(), err2str(ret));
 				return false;
 			}
 			for (uint32_t i = 0; i < m_fmtctx->nb_streams; i++) {
