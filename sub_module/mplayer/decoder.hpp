@@ -60,7 +60,7 @@ public:
 	void	config(void* config)							  override;
 	void	update(void* config)							  override;
 	int32_t	Q_size(void)									  override;
-	void	pushPackt(std::shared_ptr<MPacket> av_pkt)			  override;
+	void	pushPackt(std::shared_ptr<MPacket> av_pkt)		  override;
 	/* control functions. */
 	void	start(void)										  override;
 	void	stopd(bool stop_quik = false)					  override;

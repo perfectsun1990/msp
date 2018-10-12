@@ -83,7 +83,8 @@ AudioDecoder::config(void * config)
 		*((AdecConfig*)config) = *m_config;
 }
 
-int32_t AudioDecoder::ssidNo(void)
+int32_t 
+AudioDecoder::ssidNo(void)
 {
 	return 	m_ssidNo;
 }
@@ -168,7 +169,7 @@ void AudioDecoder::start(void)
 				msg("audio cache upts=[%lf] prop=%ld\n", av_pkt->upts, av_pkt->prop);
 			}
 
-			// 3.scale AVPacket timebase. <stream->codec: eg.1/44100->44100>
+			// 3.scale AVPacket timebase. <stream->codec: eg.1/44100->1/44100>
 			av_packet_rescale_ts(av_pkt->ppkt, av_pkt->sttb, m_codec_ctx->time_base);
 			// 4. send packet to decoder.
 			if ((ret = avcodec_send_packet(m_codec_ctx, av_pkt->ppkt)) < 0) {
@@ -200,13 +201,14 @@ void AudioDecoder::start(void)
 					for (auto iter = cache_props.begin(); iter != cache_props.end();) {
 						if (fabs(av_frm->upts - iter->first) < 0.001) {
 							av_frm->prop = iter->second;
+							war("audio remove upts=[%lf] prop=%ld\n\n", iter->first, iter->second);
 							cache_props.erase(iter++);
-							war("audio remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);							
 						}else {
 							if (av_frm->upts - iter->first > 0) {
 								av_frm->prop = iter->second;
-								cache_props.erase(iter);
-								war("!!!audio remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
+								cache_props.erase(iter);							
+								war("!!!audio remove upts=[%lf] prop=%ld\n\n", iter->first, iter->second);
+								break;
 							}
 							iter++;
 						}
@@ -491,13 +493,14 @@ void VideoDecoder::start(void)
 					for (auto iter = cache_props.begin(); iter != cache_props.end();) {
 						if (fabs(av_frm->upts - iter->first) < 0.001) {
 							av_frm->prop = iter->second;
+							war("video remove upts=[%lf] prop=%ld\n\n", iter->first, iter->second);
 							cache_props.erase(iter++);
-							war("video remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
 						}else {
 							if (av_frm->upts - iter->first > 0) {
 								av_frm->prop = iter->second;
 								cache_props.erase(iter);
-								war("!!!video remove upts=[%lf] prop=%ld\n\n", av_frm->upts, iter->second);
+								war("!!!video remove upts=[%lf] prop=%ld\n\n", iter->first, iter->second);
+								break;
 							}
 							iter++;
 						}

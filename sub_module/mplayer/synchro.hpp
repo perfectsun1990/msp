@@ -105,7 +105,7 @@ private:
 	double m_current_pts = 0;
 	int64_t m_current_pts_time = 0;
 	double m_previous_pts = 0;
-	double m_previous_pts_diff = 40e-3;
+	double m_previous_pts_diff = 23e-3;
 	int64_t m_start_pts = 0;
 	double m_predicted_pts = 0.0;
 	bool m_first_frame = true;

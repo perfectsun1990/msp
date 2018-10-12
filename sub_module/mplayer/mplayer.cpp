@@ -315,26 +315,25 @@ int32_t main(int32_t argc, char *argv[])
 	{
 #if TEST_WINDOW// 2 window test
 		std::shared_ptr<Mplayer> mp1 =
-			std::make_shared<Mplayer>("rtsp://184.72.239.149/vod/mp4://BigBuckBunny_175k.mov", speakr1, (void*)window1.winId());
+			std::make_shared<Mplayer>("rtmp://202.69.69.180:443/webcast/bshdlive-pc", speakr1, (void*)window1.winId());
 		std::shared_ptr<Mplayer> mp2 = 
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4", speakr2, (void*)window2.winId());
 #else
 		std::shared_ptr<Mplayer> mp1 =
 			std::make_shared<Mplayer>("E:\\av-test\\8.mp4");
 		std::shared_ptr<Mplayer> mp2 =
-			std::make_shared<Mplayer>("rtmp://live.hkstv.hk.lxdns.com/live/hks");
+			std::make_shared<Mplayer>("E:\\av-test\\8.mp4");
 #endif
-		//mp1->start();
-		mp2->start();
-		std::this_thread::sleep_for(std::chrono::seconds(30));
-		mp2->stopd();
+		mp1->start();
+		//mp2->start();
+		//std::this_thread::sleep_for(std::chrono::seconds(30));
+		//mp1->stopd();
 #if		TEST_SEEK_PAUSE
 		for (int i = 1; ; i++) {
-			std::this_thread::sleep_for(std::chrono::seconds(5));
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 			msg("set %d\n", i % 2);
 			//mp2->pause(i%2);
-			mp2->seekp((i % 5) * 20 * 1000000);// t:us
-	//		std::this_thread::sleep_for(std::chrono::seconds(500));
+			mp2->seekp((i % 10) * 20 * 1000000);// t:us
 		}
 #endif
 #if TEST_REOPEN// 3 reopen thread_safe test

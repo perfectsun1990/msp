@@ -198,6 +198,7 @@ VideoMrender::start()
 				sleepMs(STANDARDTK);
 				continue;
 			}
+
 			// 2.check and reinit sdl2  devices.
 			if (m_config->vcodec_pars.v_format != av_frm->pars->format
 				|| m_config->vcodec_pars.pix_with != av_frm->pars->width
@@ -674,10 +675,11 @@ AudioMrender::stopd(bool stop_quik)
 void
 AudioMrender::pushFrame(std::shared_ptr<MRframe> av_frm)
 {
-	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format))
-	{// Note: Only resmple for unsupported foramts,convert to fltp.
+	if (-1 == fmtconvert(av_frm->pars->codec_type, av_frm->pars->format)
+		|| av_frm->pfrm->channels > 2 )
+	{// Note: Only resmple for unsupported foramts,convert to fltp,stereo.
 		AVFrame* pfrm = audio_frame_alloc(AV_SAMPLE_FMT_FLTP,
-			av_frm->pfrm->channel_layout, av_frm->pfrm->sample_rate, av_frm->pfrm->nb_samples);
+			AV_CH_LAYOUT_STEREO, av_frm->pfrm->sample_rate, av_frm->pfrm->nb_samples);
 		if (!resmple_frame(&m_swrctx, pfrm, av_frm->pfrm)) {
 			err("Audio: pfrm=%p resmple failed...\n", pfrm);
 			audio_frame_freep(&pfrm);

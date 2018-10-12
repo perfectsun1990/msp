@@ -158,8 +158,8 @@ MediaDemuxer::start(void)
 				continue;
 			}
 			if (av_pkt->type == AVMEDIA_TYPE_AUDIO) {// update audio cache and status.
-// 				if (0 == audio_pkt_nums++)
-// 					SET_PROPERTY(av_pkt->prop, P_BEGP);
+				if (0 == audio_pkt_nums++)
+					SET_PROPERTY(av_pkt->prop, P_BEGP);
 				if (!m_seek_apkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_apkt = true;
@@ -168,8 +168,12 @@ MediaDemuxer::start(void)
 				m_acache->upts = av_pkt->upts;
 			}
 			if (av_pkt->type == AVMEDIA_TYPE_VIDEO) {// update video cache and status.
-// 				if (0 == video_pkt_nums++)
-// 					SET_PROPERTY(av_pkt->prop, P_BEGP);
+				video_pkt_nums = video_pkt_nums ? video_pkt_nums++ : 0;
+				if (0 == video_pkt_nums 
+					&& AV_PKT_FLAG_KEY & av_pkt->ppkt->flags) {					
+					SET_PROPERTY(av_pkt->prop, P_BEGP);
+					video_pkt_nums++;
+				}
 				if (!m_seek_vpkt) {
 					SET_PROPERTY(av_pkt->prop, P_SEEK);
 					m_seek_vpkt = true;
@@ -260,9 +264,9 @@ MediaDemuxer::opendMudemuxer(bool is_demuxer)
 			}
 			// Policy for resove av_read_frame block,play low delay.
 			m_fmtctx = avformat_alloc_context();
-			m_fmtctx->probesize		= 128*1024;					//def:5M,can be set smaller.
-			m_fmtctx->max_delay		= 100*1000;					//m_fmtctx->flush_packets = 1;
-			m_fmtctx->max_analyze_duration = 1000000;			//rapid load, max_duration:2s
+			m_fmtctx->probesize		= 5*1024*1024;				//def:5M,can be set smaller.
+			m_fmtctx->max_delay		= 0;					//m_fmtctx->flush_packets = 1;
+			m_fmtctx->max_analyze_duration = 0;			//rapid load, max_duration:2s
 			m_fmtctx->interrupt_callback.opaque		= this;
 			m_fmtctx->interrupt_callback.callback	= [](void* ctx)->int32_t {
 				MediaDemuxer* pthis = (MediaDemuxer*)ctx;		//break when read frame block.

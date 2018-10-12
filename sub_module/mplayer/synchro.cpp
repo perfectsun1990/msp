@@ -125,7 +125,7 @@ MediaSynchro::start(void)
 			}
 
 			// 修正渲染延时:pts_diff。。。,这个值吧就是delay的一个参考时间。delay不能超过这个值
-			if (pts_diff <= 0 || late_first_frame || CHK_PROPERTY(av_frm->prop,P_SEEK))
+			if (pts_diff <= 0 || pts_diff >= 1 || late_first_frame || CHK_PROPERTY(av_frm->prop,P_SEEK))
 			{//修正第一帧负的pts以及正的但是大于1s的pts，diff太大会导致阻塞，<0会导致不延时。
 			 //即时间戳回绕的问题，这里仅简单的保持为上次的延时。正常只进来一次，多次进入肯定是他妈编码的时间戳的出问题了。
 				pts_diff = m_previous_pts_diffv;
@@ -170,7 +170,10 @@ MediaSynchro::start(void)
 			if (!m_observer.expired())
 				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;
-			dbg("v delay_until_next_wake=%lf\n", delay_until_next_wake);
+			if (delay_until_next_wake > 1) {
+				war("[V]delay_until_next_wake=%lf is abnormal! pts_diff=%lf cur_pts=%lf, pre_pts=%lf\n", 
+					delay_until_next_wake, pts_diff, av_frm->upts, m_previous_ptsv);
+			}			
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
 		war("Video sync thread....exit(m_signalVquit=%d)....\n", m_signalVquit);
@@ -211,7 +214,7 @@ MediaSynchro::start(void)
 				m_first_frame = false;
 			}
 			// 修正渲染延时:pts_diff。。。,这个值吧就是delay的一个参考时间。delay不能超过这个值
-			if (pts_diff <= 0 || late_first_frame || CHK_PROPERTY(av_frm->prop, P_SEEK))
+			if (pts_diff <= 0 || pts_diff >= 1 || late_first_frame || CHK_PROPERTY(av_frm->prop, P_SEEK))
 			{//修正第一帧负的pts以及正的但是大于1s的pts，diff太大会导致阻塞，<0会导致不延时。
 			 //即时间戳回绕的问题，这里仅简单的保持为上次的延时。正常只进来一次，多次进入肯定是他妈编码的时间戳的出问题了。
 				pts_diff = m_previous_pts_diff;
@@ -239,7 +242,10 @@ MediaSynchro::start(void)
 			if (!m_observer.expired())
 				m_observer.lock()->onSynchroFrame(av_frm);
 			int offset = 0;
-			dbg("a delay_until_next_wake=%lf\n", delay_until_next_wake);
+			if (delay_until_next_wake > 1) {
+				war("[A]delay_until_next_wake=%lf is abnormal! pts_diff=%lf cur_pts=%lf, pre_pts=%lf\n",
+					delay_until_next_wake, pts_diff, av_frm->upts, m_previous_ptsv);
+			}
 			std::this_thread::sleep_for(AT::micros_t((int)(delay_until_next_wake * 1000000 - offset)));
 		}
 		war("Audio sync thread....exit(m_signalAquit=%d)....\n", m_signalAquit);
