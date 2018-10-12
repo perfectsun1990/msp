@@ -1145,7 +1145,13 @@ int CompressToZip(const char* dst, const char* src, bool is_append)
 	return CompressToZip3(dst, src, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
 #endif
 #ifdef WIN32
-	return CompressToZip3(dst, src, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
+	int ret = 0;
+	char src_tmp[512] = { 0 }, dst_tmp[512] = { 0 };
+	ret = Utf82Ansi(src, src_tmp, sizeof(src_tmp));
+	if (ret <= 0) return -2;
+	ret = Utf82Ansi(dst, dst_tmp, sizeof(dst_tmp));
+	if (ret <= 0) return -1;
+	return CompressToZip3(dst_tmp, src_tmp, Z_NO_COMPRESSION, is_append, NULL, 0, 1);
 #endif
 	return CompressToZip2(dst, src, Z_NO_COMPRESSION, is_append, NULL, NULL);
 }
