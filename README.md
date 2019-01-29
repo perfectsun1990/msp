@@ -1,7 +1,7 @@
 
 # 项目介绍
 	msp
-	It's a colection of media tools and utils, such as a based player example.
+	It's a colection of media tools and utils, such as a basic player example, split/merge tools, c/c++ thread pool,mem pool,task que and so on.
 	
 # 编译生成
 	Add follow Envs，if you cmake complile failed!
