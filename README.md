@@ -1,7 +1,7 @@
 
 # 项目介绍
-	msp-studio
-	a media player,split,merge tools based on ffmpeg and libvlc.
+	msp
+	It's a colection of media tools and utils, such as a based player example.
 	
 # 编译生成
 	Add follow Envs，if you cmake complile failed!
